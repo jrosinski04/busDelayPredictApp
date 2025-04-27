@@ -2,7 +2,9 @@ import uvicorn
 import crochet
 import asyncio
 import traceback
+import logging
 from crochet import setup, wait_for
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,8 +20,9 @@ from services_spider import ServicesSpider
 from bus_journeys_spider import BusJourneysSpider
 
 setup()
-
 app = FastAPI()
+client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
+
 
 # Enable CORS (Allow React frontend to access API)
 app.add_middleware(
@@ -31,13 +34,19 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+class PredictRequest(BaseModel):
+    service_id: int
+    stop_name: str
+    destination: str
+    date: str
+    time: str
+
 @app.get("/")
 def home():
     return {"message": "FastAPI is running!"}
 
 @app.get("/get_services")
 async def get_services(query: str ):
-    client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
     db = client["BusDelayPredict"]
     collection = db["services"]
     services = collection.find(
@@ -52,6 +61,44 @@ async def get_services(query: str ):
 
     results = list(services)
     return results
+
+@app.post("/get_historical_delays")
+def get_historical_delays(req: PredictRequest):
+
+    # Parsing date and time
+    date = datetime.fromisoformat(req.date).date()
+    hr, min = map(int, req.time.split(":"))
+    dep_mins = hr * 60 + min
+
+    # Establishing time range
+    window = 80
+    low = dep_mins - window
+    high = dep_mins + window
+
+    # Building filter for MongoDB
+    filter = {
+        "service_id": req.service_id,
+        "stop_name": req.stop_name,
+        "destination": req.destination,
+        "scheduled_mins": {"$gte": low, "$lte": high},
+        "date": req.date
+    }
+    
+    # Query
+    col = client.BusDelayPredict.journeysTEST
+
+    docs = list(col.find(filter, {
+        "_id": 0,
+        "delay_mins": 1,
+        "scheduled_mins": 1,
+        "actual_mins": 1,
+        "journey_id": 1
+    }))
+
+    if not docs:
+        raise HTTPException(404, "No matching history found")
+    
+    return docs
 
 result = []
 

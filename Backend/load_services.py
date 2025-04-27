@@ -9,7 +9,6 @@ from pymongo import MongoClient, UpdateOne
 # --- CONFIGURATION ---
 MONGO_URI = "mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict"
 OPERATORS = {"BNVB", "BNSM", "BNML", "BNGN", "BNFM", "BNDB"}
-SLUG = "440-rochdale-syke-2"
 PAGE_SIZE = 100  # API page size
 # ---------------------
 
@@ -17,11 +16,10 @@ PAGE_SIZE = 100  # API page size
 def load_services():
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
-    #col = db.servicesBN
-    col = db.servicesTEST
+    col = db.servicesBN
 
     url = "https://bustimes.org/api/services/"
-    params = {"page_size": PAGE_SIZE, "slug":"440-rochdale-syke-2"}
+    params = {"page_size": PAGE_SIZE, "region_id":"NW"}
 
     ops = []
     while url:
@@ -31,8 +29,10 @@ def load_services():
 
         for svc in data.get("results", []):
             # Filter to Bee Network operators
-            slug = svc.get("slug")
-            if (slug == SLUG):
+            operators = svc.get("operator")
+            operator = set(operators) & set(OPERATORS)
+
+            if operator:
                 doc = {
                     "_id":         svc["id"],
                     "slug":        svc.get("slug"),
@@ -40,7 +40,7 @@ def load_services():
                     "description": svc.get("description"),
                     "region_id":   svc.get("region_id"),
                     "mode":        svc.get("mode"),
-                    "operator":    svc.get("operator"),
+                    "operator":    list(operator)[0],
                 }
                 ops.append(
                     UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
