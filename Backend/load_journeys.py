@@ -10,8 +10,8 @@ DB_NAME      = "BusDelayPredict"
 SERVICES_COL = "servicesTEST"
 JOURNEYS_COL = "journeysTEST"
 
-START_DATE   = "2025-04-23"   
-END_DATE     = "2025-04-23"   
+START_DATE   = "2025-04-26"   
+END_DATE     = "2025-04-26"   
 PAGE_SIZE    = 100
 BATCH_SIZE   = 100
 PAUSE        = 15
@@ -98,26 +98,26 @@ def load_journeys():
                 first = stops[0] # Origin of the journey
                 last  = stops[-1] # Destination of the journey
                 j_date  = datetime.fromisoformat(detail["datetime"]).date()
+                day = get_day(j_date.isoformat())
 
                 # Iterating over all stops in the current journey
                 for index, stop in enumerate(stops):
 
+                    actual_dep_string = stop.get("actual_departure_time")
+
                     sched_dep = stop.get("aimed_departure_time") 
+
+                    if not actual_dep_string or not sched_dep:
+                        continue
+                
                     sched_mins = time_to_mins(sched_dep)
 
-                    actual_dep_string = stop.get("actual_departure_time")
-                    actual_dep = None
-                    actual_mins = None
-                    delay = None
+                    dt = datetime.fromisoformat(actual_dep_string.replace("Z", "+00:00")) + timedelta(hours=1)
+                    actual_dep = dt.strftime("%H:%M")
+                    actual_mins = time_to_mins(actual_dep)
 
-                    # Parsing, correcting timezone and formatting the actual departure time
-                    if actual_dep_string:
-                        dt = datetime.fromisoformat(actual_dep_string.replace("Z", "+00:00")) + timedelta(hours=1)
-                        actual_dep = dt.strftime("%H:%M")
-                        actual_mins = time_to_mins(actual_dep)
-
-                        # Calculate delay
-                        delay = actual_mins - sched_mins
+                    # Calculate delay
+                    delay = actual_mins - sched_mins
 
                     # Building the MongoDB document for the stop event
                     doc = {
@@ -126,6 +126,7 @@ def load_journeys():
                         "journey_id":    jid,
                         "stop_index":    index,
                         "stop_name":     stop["name"],
+                        "stop_id":       stop["id"],   
                         "date":          j_date.isoformat(),
                         "origin":        first.get("name"),
                         "destination":   last.get("name"),
@@ -133,8 +134,9 @@ def load_journeys():
                         "scheduled_mins":sched_mins,
                         "actual_dep":    actual_dep,
                         "actual_mins":   actual_mins,
-                        "delay_mins":    delay
-                        "day_of_week":   get_day(j_date.isoformat())
+                        "delay_mins":    delay,
+                        "day_of_week":   day,
+                        "is_peak":       is_peak(sched_mins, day)
 
                     }
                     operations.append(UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True))
@@ -154,12 +156,23 @@ def load_journeys():
 
 def time_to_mins(timestr: str) -> int:
     # Converting date variable to minutes since midnight for easier calculation
-    h, m = map(int, timestr.split(":"))
-    return h * 60 + m
+    try:
+        h, m = map(int, timestr.split(":"))
+        return h * 60 + m
+    except AttributeError:
+        return print(timestr)
 
 def get_day(date: str) -> int:
     # Getting the day of the week
     return datetime.fromisoformat(date).date().weekday()
+
+def is_peak(minutes: int, weekday: int) -> bool:
+    # Checking whether the journey is during peak hours
+    # PEAK HOURS: MONDAY - FRIDAY (07:00 - 09:00 OR 15:00 - 18:00)
+
+    if weekday >= 5:
+        return False
+    return (420 <= minutes < 540) or (900 <= minutes < 1080)
 
 if __name__ == "__main__":
     load_journeys()
