@@ -1,6 +1,5 @@
 import requests, time, holidays
 from datetime import datetime, timedelta
-from meteostat import Point, Daily
 from pymongo import MongoClient, UpdateOne
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -123,18 +122,6 @@ def load_journeys():
                     # Calculate delay
                     delay = actual_mins - sched_mins
 
-                    # Getting weather data
-                    lat, lon = stop["coordinates"]
-                    point = Point(lat, lon)
-                    tmp = None
-                    precip_mm = None
-
-                    day_weather_data = Daily(point, j_date, j_date).fetch()
-                    if not day_weather_data.empty:
-                        # Getting average temp and precipitation for the day
-                        tmp = day_weather_data['tavg'].iloc[0]
-                        precip_mm = day_weather_data['prcp'].iloc[0]
-
                     # Building the MongoDB document for the stop event
                     doc = {
                         "_id":           f"{svc_id}_{stop['id']}",
@@ -154,8 +141,6 @@ def load_journeys():
                         "day_of_week":   day,
                         "is_peak":       is_peak(sched_mins, day),
                         "is_holiday":    is_holiday,
-                        "temp_C":        tmp,
-                        "precip_mm":     precip_mm
                     }
                     operations.append(UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True))
                     total_for_service += 1
