@@ -104,18 +104,6 @@ def load_journeys():
                 day = get_day(j_date.isoformat()) # Day of the week
                 is_holiday = j_date in uk_holidays # Checks whether day is a holiday
 
-                # Getting weather data
-                lat, lon = stop["coordinates"]
-                point = Point(lat, lon)
-                tmp = None
-                precip_mm = None
-
-                day_weather_data = Daily(point, j_date, j_date).fetch()
-                if not day_weather_data.empty:
-                    # Getting average temp and precipitation for the day
-                    tmp = day_weather_data['tavg'].iloc[0]
-                    precip_mm = day_weather_data['prcp'].iloc[0]
-
                 # Iterating over all stops in the current journey
                 for index, stop in enumerate(stops):
 
@@ -134,6 +122,18 @@ def load_journeys():
 
                     # Calculate delay
                     delay = actual_mins - sched_mins
+
+                    # Getting weather data
+                    lat, lon = stop["coordinates"]
+                    point = Point(lat, lon)
+                    tmp = None
+                    precip_mm = None
+
+                    day_weather_data = Daily(point, j_date, j_date).fetch()
+                    if not day_weather_data.empty:
+                        # Getting average temp and precipitation for the day
+                        tmp = day_weather_data['tavg'].iloc[0]
+                        precip_mm = day_weather_data['prcp'].iloc[0]
 
                     # Building the MongoDB document for the stop event
                     doc = {
