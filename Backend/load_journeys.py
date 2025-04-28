@@ -1,5 +1,6 @@
-import requests, time
+import requests, time, holidays
 from datetime import datetime, timedelta
+from meteostat import Point, Daily
 from pymongo import MongoClient, UpdateOne
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -7,14 +8,16 @@ from urllib3.util.retry import Retry
 # CONFIGURATION PARAMETERS
 MONGO_URI    = "mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict"
 DB_NAME      = "BusDelayPredict"
-SERVICES_COL = "servicesTEST"
-JOURNEYS_COL = "journeysTEST"
+SERVICES_COL = "servicesBN"
+JOURNEYS_COL = "journeysBN"
 
-START_DATE   = "2025-04-26"   
-END_DATE     = "2025-04-26"   
+START_DATE   = "2025-04-17"   
+END_DATE     = "2025-04-20"   
 PAGE_SIZE    = 100
 BATCH_SIZE   = 100
 PAUSE        = 15
+
+uk_holidays = holidays.UK(subdiv="ENG")
 # ----------------------------------------
 
 def chunk_list(list, size):
@@ -98,7 +101,20 @@ def load_journeys():
                 first = stops[0] # Origin of the journey
                 last  = stops[-1] # Destination of the journey
                 j_date  = datetime.fromisoformat(detail["datetime"]).date()
-                day = get_day(j_date.isoformat())
+                day = get_day(j_date.isoformat()) # Day of the week
+                is_holiday = j_date in uk_holidays # Checks whether day is a holiday
+
+                # Getting weather data
+                lat, lon = stop["coordinates"]
+                point = Point(lat, lon)
+                tmp = None
+                precip_mm = None
+
+                day_weather_data = Daily(point, j_date, j_date).fetch()
+                if not day_weather_data.empty:
+                    # Getting average temp and precipitation for the day
+                    tmp = day_weather_data['tavg'].iloc[0]
+                    precip_mm = day_weather_data['prcp'].iloc[0]
 
                 # Iterating over all stops in the current journey
                 for index, stop in enumerate(stops):
@@ -136,8 +152,10 @@ def load_journeys():
                         "actual_mins":   actual_mins,
                         "delay_mins":    delay,
                         "day_of_week":   day,
-                        "is_peak":       is_peak(sched_mins, day)
-
+                        "is_peak":       is_peak(sched_mins, day),
+                        "is_holiday":    is_holiday,
+                        "temp_C":        tmp,
+                        "precip_mm":     precip_mm
                     }
                     operations.append(UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True))
                     total_for_service += 1
@@ -149,10 +167,12 @@ def load_journeys():
                 operations.clear()
 
             # Pausing before executing the next batch
-            print(f"     - sleeping {PAUSE}s ...")
-            time.sleep(PAUSE)
+            if batch_num * BATCH_SIZE < len(journeys):
+                print(f"     - sleeping {PAUSE}s ...")
+                time.sleep(PAUSE)
 
         print(f" FINISHED: Collected {total_for_service} journeys for {svc_id}")
+        time.sleep(1)
 
 def time_to_mins(timestr: str) -> int:
     # Converting date variable to minutes since midnight for easier calculation
