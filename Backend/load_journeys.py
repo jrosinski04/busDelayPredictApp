@@ -87,8 +87,15 @@ def load_journeys():
             print(f" * Processing batch {batch_num} ({len(batch)} journeys)...")
             for jid in batch:
 
-                # Fetching the detailed JSON for each journey
-                detail = requests.get(f"https://bustimes.org/services/{svc_id}/journeys/{jid}.json", timeout=10).json()
+                while True:
+                    try:
+                        # Fetching the journey details
+                        detail = session.get(f"https://bustimes.org/services/{svc_id}/journeys/{jid}.json", timeout=10).json()
+                        break  # Success, exit the retry loop
+                    except (requests.exceptions.RequestException, requests.exceptions.ConnectionError) as e:
+                        print(f"Network error occurred while fetching journey {jid}: {e}")
+                        print("Waiting 60 seconds before retrying...")
+                        time.sleep(60)
 
                 # Delaying the operation to control load
                 time.sleep(0.4)
