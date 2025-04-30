@@ -51,18 +51,13 @@ class PredictRequest(BaseModel):
 def home():
     return {"message": "FastAPI is running!"}
 
-@app.get("/test")
-def test():
-    return journeys_db.find_one({})
-
 @app.get("/get_services")
 async def get_services(query: str ):
     services = services_db.find(
     {
         "$or": [
-            {"Service": {"$regex":query, "$options": "i"}},
-            {"Origin": {"$regex":query, "$options": "i"}},
-            {"Destination": {"$regex":query, "$options": "i"}}
+            {"number": {"$regex":query, "$options": "i"}},
+            {"description": {"$regex":query, "$options": "i"}},
         ]
     },
     {"_id": 0})
