@@ -4,10 +4,10 @@ import asyncio
 import traceback
 import joblib
 import pandas as pd
-import logging
+import holidays
 from crochet import setup, wait_for
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pymongo import MongoClient
@@ -28,6 +28,7 @@ db = client["BusDelayPredict"]
 services_db = db["servicesBN"]
 journeys_db = db["journeysBN"]
 model = joblib.load("delay_predictor_lgbm.pkl")
+uk_holidays = holidays.UK(subdiv="ENG")
 
 # Enable CORS (Allow React frontend to access API)
 app.add_middleware(
@@ -50,6 +51,10 @@ class PredictRequest(BaseModel):
 def home():
     return {"message": "FastAPI is running!"}
 
+@app.get("/test")
+def test():
+    return journeys_db.find_one({})
+
 @app.get("/get_services")
 async def get_services(query: str ):
     services = services_db.find(
@@ -65,16 +70,16 @@ async def get_services(query: str ):
     results = list(services)
     return results
 
-@app.post("/get_historical_delays")
-def get_historical_delays(req: PredictRequest):
+@app.post("/get_closest_journey")
+def get_closest_journey(req: PredictRequest):
 
     # Parsing date and time
     date = datetime.fromisoformat(req.date).date()
-    hr, min = map(int, req.time.split(":"))
-    dep_mins = hr * 60 + min
+    hr, mins = map(int, req.time.split(":"))
+    dep_mins = hr * 60 + mins
 
     # Establishing time range
-    window = 80
+    window = 30
     low = dep_mins - window
     high = dep_mins + window
 
@@ -84,11 +89,12 @@ def get_historical_delays(req: PredictRequest):
         "stop_name": req.stop_name,
         "destination": req.destination,
         "scheduled_mins": {"$gte": low, "$lte": high},
-        "date": req.date
+        "is_holiday": date in uk_holidays,
+        "is_peak": is_peak(dep_mins, date.weekday()),
     }
     
-    # Query
-    docs = list(journeys_db.find(filter, {
+    # Query and specifying the attributes to return
+    retrieved_journeys = list(journeys_db.find(filter, {
         "_id": 0,
         "delay_mins": 1,
         "scheduled_mins": 1,
@@ -96,10 +102,15 @@ def get_historical_delays(req: PredictRequest):
         "journey_id": 1
     }))
 
-    if not docs:
+    if not retrieved_journeys:
         raise HTTPException(404, "No matching history found")
     
-    return docs
+    # Find closest journey
+    closest = min(
+        retrieved_journeys,
+        key=lambda doc: abs(doc["scheduled_mins"] - dep_mins)
+    )
+    return closest
 
 result = []
 
@@ -113,6 +124,33 @@ def is_peak(mins: int, weekday: int) -> bool:
 
 @app.post("/predict_delay")
 def predict_delay(req: PredictRequest):
+
+    # Getting the closest scheduled journey to the user's selected time
+    closest_j = get_closest_journey(req)
+    if not closest_j:
+        raise HTTPException(404, "No historical journey found in window")
+    
+    
+    # Getting route info
+    svc = services_db.find_one({"_id": req.service_id})
+    if not svc:
+        raise HTTPException(404, f"Service {req.service_id} not found.")
+    
+    # Splitting route description into origin and destination
+    if "description" not in svc:
+        raise HTTPException(500, "Service description missing origin/destination")
+    origin, destination = [p.strip() for p in svc["description"].split("-")]
+
+    # Looking up stop index
+    sample = journeys_db.find_one(
+        {"service_id": req.service_id, "stop_name": req.stop_name},
+        {"stop_index": 1}
+    )
+    if not sample:
+        raise HTTPException(404, f"Stop {req.stop_name!r} not found on service.")
+    stop_idx = sample["stop_index"]
+
+    # Parsing time and date
     try:
         j_date = datetime.fromisoformat(req.date).date()
         sched_mins = time_to_minutes(req.time)
@@ -122,24 +160,9 @@ def predict_delay(req: PredictRequest):
     day_of_week = j_date.weekday()
     peak = is_peak(sched_mins, day_of_week)
 
-    svc = services_db.find_one({"_id": req.service_id})
-    if not svc:
-        raise HTTPException(404, f"Service {req.service_id} not found.")
-    
-    if "description" not in svc:
-        raise HTTPException(500, "Service description missing origin/destination")
-    origin, destination = [p.strip() for p in svc["description"].split("-")]
-
-    sample = journeys_db.find_one(
-        {"service_id": req.service_id, "stop_name": req.stop_name},
-        {"stop_index": 1}
-    )
-    if not sample:
-        raise HTTPException(404, f"Stop {req.stop_name!r} not found on service.")
-    stop_idx = sample["stop_index"]
-
+    # Assembling feature row
     row = {
-        "scheduled_mins": [sched_mins],
+        "scheduled_mins": closest_j["scheduled_mins"],
         "day_of_week": [day_of_week],
         "is_peak": [peak],
         "stop_index": [stop_idx],
@@ -148,14 +171,16 @@ def predict_delay(req: PredictRequest):
         "origin": [origin],
         "destination": [destination],
     }
+
     X = pd.DataFrame(row)
 
+    # Model prediction
     try:
         prediction = model.predict(X)[0]
     except Exception as e:
         raise HTTPException(500, f"Model failed to run: {e}")
 
-    return {"predicted_delay_mins": float(prediction)}    
+    return {"predicted_delay_mins": int(prediction)}    
 
 @app.get("/get_service_link")
 async def get_service_link(query: str ):
