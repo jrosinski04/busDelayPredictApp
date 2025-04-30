@@ -2,6 +2,8 @@ import uvicorn
 import crochet
 import asyncio
 import traceback
+import joblib
+import pandas as pd
 import logging
 from crochet import setup, wait_for
 from datetime import datetime, timedelta
@@ -22,7 +24,10 @@ from bus_journeys_spider import BusJourneysSpider
 setup()
 app = FastAPI()
 client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
-
+db = client["BusDelayPredict"]
+services_db = db["servicesBN"]
+journeys_db = db["journeysBN"]
+model = joblib.load("delay_predictor_lgbm.pkl")
 
 # Enable CORS (Allow React frontend to access API)
 app.add_middleware(
@@ -47,9 +52,7 @@ def home():
 
 @app.get("/get_services")
 async def get_services(query: str ):
-    db = client["BusDelayPredict"]
-    collection = db["services"]
-    services = collection.find(
+    services = services_db.find(
     {
         "$or": [
             {"Service": {"$regex":query, "$options": "i"}},
@@ -85,9 +88,7 @@ def get_historical_delays(req: PredictRequest):
     }
     
     # Query
-    col = client.BusDelayPredict.journeysTEST
-
-    docs = list(col.find(filter, {
+    docs = list(journeys_db.find(filter, {
         "_id": 0,
         "delay_mins": 1,
         "scheduled_mins": 1,
@@ -101,6 +102,60 @@ def get_historical_delays(req: PredictRequest):
     return docs
 
 result = []
+
+def time_to_minutes(timestr: str) -> int:
+    h, m = map(int, timestr.split(":"))
+    return h * 60 + m
+
+def is_peak(mins: int, weekday: int) -> bool:
+    if weekday >= 5: return False
+    return (420 <= mins < 540) or (900 <= mins < 1080)
+
+@app.post("/predict_delay")
+def predict_delay(req: PredictRequest):
+    try:
+        j_date = datetime.fromisoformat(req.date).date()
+        sched_mins = time_to_minutes(req.time)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid date/time format: {e}")
+    
+    day_of_week = j_date.weekday()
+    peak = is_peak(sched_mins, day_of_week)
+
+    svc = services_db.find_one({"_id": req.service_id})
+    if not svc:
+        raise HTTPException(404, f"Service {req.service_id} not found.")
+    
+    if "description" not in svc:
+        raise HTTPException(500, "Service description missing origin/destination")
+    origin, destination = [p.strip() for p in svc["description"].split("-")]
+
+    sample = journeys_db.find_one(
+        {"service_id": req.service_id, "stop_name": req.stop_name},
+        {"stop_index": 1}
+    )
+    if not sample:
+        raise HTTPException(404, f"Stop {req.stop_name!r} not found on service.")
+    stop_idx = sample["stop_index"]
+
+    row = {
+        "scheduled_mins": [sched_mins],
+        "day_of_week": [day_of_week],
+        "is_peak": [peak],
+        "stop_index": [stop_idx],
+        "service_id": [req.service_id],
+        "stop_name": [req.stop_name],
+        "origin": [origin],
+        "destination": [destination],
+    }
+    X = pd.DataFrame(row)
+
+    try:
+        prediction = model.predict(X)[0]
+    except Exception as e:
+        raise HTTPException(500, f"Model failed to run: {e}")
+
+    return {"predicted_delay_mins": float(prediction)}    
 
 @app.get("/get_service_link")
 async def get_service_link(query: str ):
