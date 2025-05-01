@@ -5,6 +5,7 @@ import traceback
 import joblib
 import pandas as pd
 import holidays
+import requests
 from crochet import setup, wait_for
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Body
@@ -107,8 +108,6 @@ def get_closest_journey(req: PredictRequest):
     )
     return closest
 
-result = []
-
 def time_to_minutes(timestr: str) -> int:
     h, m = map(int, timestr.split(":"))
     return h * 60 + m
@@ -177,6 +176,8 @@ def predict_delay(req: PredictRequest):
 
     return {"predicted_delay_mins": int(prediction)}    
 
+result = []
+
 @app.get("/get_service_link")
 async def get_service_link(query: str ):
     result.clear()
@@ -204,85 +205,41 @@ def run_service_spider(query):
     d = runner.crawl(ServicesSpider, query=query)
     return d
 
-# ---- STOP SCRAPER ENDPOINT ----
 @app.get("/get_stops")
-async def get_stops(serviceURL: str):
-    print(f"Received service URL: {serviceURL}")
+def get_stops(service_id: int):
+    # Get journey details
+    resp = requests.get("https://bustimes.org/api/vehiclejourneys/", params={"service": service_id, "page_size": 1}, timeout=10)
+    resp.raise_for_status()
+    journeys = resp.json().get("results") or []
 
-    @crochet.wait_for(timeout=15.0)
-    def run_spider(service_url):
-        results = []
+    # Get servcie details
+    resp = requests.get(f"http://bustimes.org/api/services/{service_id}", params={"page_size": 1}, timeout = 10)
+    resp.raise_for_status()
+    svc = resp.json()
+    destination = svc["description"].split("-")[-1].lstrip()
 
-        def collect_item(item, response, spider):
-            print(f"Collected stop: {item}")
-            results.append(item)
+    if not journeys or not svc:
+        return {"stops": []}
+    
+    journey_index = 0
+    while (True):
+        if journey_index > 5:
+            return {"stops": []}
 
-        dispatcher.connect(collect_item, signal=signals.item_passed)
+        journey = journeys[journey_index]
 
-        runner = CrawlerRunner()
-        d = runner.crawl(StopsSpider, service_url=service_url)
-
-        def cleanup(_):
-            print(f"Spider done for URL: {service_url}")
-            dispatcher.disconnect(collect_item, signal=signals.item_passed)
-            return results
-
-        d.addBoth(cleanup)
-        return d
-
-    try:
-        scraped_items = await asyncio.to_thread(run_spider, serviceURL)
-        stop_names = [item.get("name") for item in scraped_items if item.get("name")]
-        print(f"Final scraped stops: {stop_names}")
-        return {"stops": stop_names}
-    except Exception as e:
-        print(f"Error in /get_stops: {e}")
-        return {"error": str(e), "stops": []}
-
-# 2) Create a single Runner instance
-runner = CrawlerRunner(get_project_settings())
-
-# 3) Define your request body schema
-class JourneyRequest(BaseModel):
-    service_link: str   # e.g. "https://bustimes.org/services/440-rochdale-syke-2"
-    stop_name:   str    # e.g. "Rochdale Interchange"
-
-# 4) Spider‑invoking function (runs in a background thread, blocks until complete)
-@wait_for(timeout=120.0)
-def run_journey_spider(service_link: str, stop_name: str):
-    results = []
-
-    def collect_item(item, response, spider):
-        print(f"[crawl] collected item: {item}")
-        results.append(item)
-
-    dispatcher.connect(collect_item, signal=signals.item_passed)
-    try:
-        d = runner.crawl(
-            BusJourneysSpider,
-            service_link=service_link,
-            stop_name=stop_name
+        stops_resp = requests.get(
+            f"https://bustimes.org/services/{service_id}/journeys/{journey["id"]}.json", timeout=10
         )
-        d.addBoth(lambda _: dispatcher.disconnect(collect_item, signal=signals.item_passed))
-        d.addCallback(lambda _: results)
-        return d
-    except Exception as e:
-        print("[crawl] exception in run_journey_spider:", e)
-        traceback.print_exc()
-        raise
+        stops_resp.raise_for_status()
 
-@app.post("/get_journey_data")
-def get_journey_data(req: JourneyRequest):
-    try:
-        print(f"[api] Got request: {req}")
-        data = run_journey_spider(req.service_link, req.stop_name)
-        print(f"[api] Spider returned {len(data)} items")
-        return data
-    except Exception as e:
-        # Log full stack
-        print("[api] exception in get_journey_data:", e)
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        stops = [ stop["name"] for stop in stops_resp.json().get("stops", []) if stop.get("name")]
+
+        if destination in stops[-1]:
+            break
+        journey_index += 1
+ 
+    return stops
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
