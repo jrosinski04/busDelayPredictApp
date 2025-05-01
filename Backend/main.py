@@ -61,7 +61,7 @@ async def get_services(query: str ):
             {"description": {"$regex":query, "$options": "i"}},
         ]
     },
-    {"_id": 0})
+    {})
 
     results = list(services)
     return results
