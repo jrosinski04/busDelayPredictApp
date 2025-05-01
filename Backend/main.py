@@ -227,9 +227,10 @@ def get_stops(service_id: int):
             return {"stops": []}
 
         journey = journeys[journey_index]
+        journey_id = journey["id"]
 
         stops_resp = requests.get(
-            f"https://bustimes.org/services/{service_id}/journeys/{journey["id"]}.json", timeout=10
+            f"https://bustimes.org/services/{service_id}/journeys/{journey_id}.json", timeout=10
         )
         stops_resp.raise_for_status()
 
