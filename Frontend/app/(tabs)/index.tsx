@@ -14,12 +14,14 @@ import Dropdown from "@/components/Dropdown";
 const MainPage = () => {
   const [servicesList, setServicesList] = useState([]);
   const [selectedService, setSelectedService] = useState("");
+  const [serviceNum, setServiceNum] = useState("");
   const [stopsList, setStopsList] = useState<string[]>([]);
   const [departureDate, setDepartureDate] = useState(new Date());
   const [departureTime, setDepartureTime] = useState("");
+  const [scheduledDeparture, setScheduledDeparture] = useState("");
   const [departureStop, setDepartureStop] = useState("");
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
-  const [predictedDelay, setPredictedDelay] = useState<number | null>(null);
+  const [predictedDelay, setPredictedDelay] = useState(null);
   const [origin, setOrigin] = useState("");
   const [originalOrigin, setOriginalOrigin] = useState("");
   const [destination, setDestination] = useState("");
@@ -70,6 +72,7 @@ const MainPage = () => {
     setDepartureStop("");
     setDepartureDate(new Date());
     setDepartureTime("");
+    setScheduledDeparture("");
     setDestination("");
     setOriginalDestination("");
     setOrigin("");
@@ -77,6 +80,7 @@ const MainPage = () => {
     setStopsList([]);
     setDirectionSelected(false);
     setPredictedDelay(null);
+    setServiceNum("");
   }
 
   const test = () => {
@@ -98,6 +102,7 @@ const MainPage = () => {
     if (!selected) return;
 
     setSelectedService(selectedLabel);
+    setServiceNum(selectedLabel.split(':')[0])
     setDepartureStop("");
 
     try {
@@ -151,10 +156,11 @@ const MainPage = () => {
         }
       );
       setPredictedDelay(response.data.predicted_delay_mins);
-      console.log(predictedDelay)
+      setScheduledDeparture(response.data.scheduled_dep);
+
     } catch (error) {
       console.log("Prediction error:", error);
-      setPredictedDelay(0);
+      setPredictedDelay(null);
     } finally {
       setLoadingPrediction(false);
     }
@@ -233,26 +239,38 @@ const MainPage = () => {
 
 
       {/* Display Selections */}
-      <View style={styles.infoSection}>
-        <Text style={styles.infoTitle}>Selected Service</Text>
-        <Text>{selectedService}</Text>
-        <Text style={styles.infoTitle}>Selected Stop</Text>
-        <Text>{departureStop}</Text>
-        <Text style={styles.infoTitle}>Direction</Text>
-        <Text>{destination}</Text>
-        {(predictedDelay !== null || loadingPrediction) && (
-          <View style={styles.resultBox}>
-            <Text style={styles.infoTitle}>Expected Punctuality:</Text>
-            <Text
-              style={[
-                loadingPrediction ? styles.processing : predictedDelay === 0 || predictedDelay === null ? styles.delayOnTime : predictedDelay <= 5 ? styles.delayMinor : styles.delayMajor
-              ]}
-            >
-              {loadingPrediction ? "Processing..." : predictedDelay === 0 || predictedDelay === null ? "On time" : `${predictedDelay} minute${predictedDelay === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-        )}
-      </View>
+      {(selectedService || departureStop || destination || scheduledDeparture) && (
+        <View style={styles.infoSection}>
+          {selectedService && (
+            <Text style={styles.infoTitle}>{serviceNum}</Text>
+          )}
+          {departureStop && (
+            <Text>from {departureStop}</Text>
+          )}
+          {destination && (
+            <Text>towards {destination}{'\n'}</Text>
+          )}
+          {scheduledDeparture && (
+            <Text>Scheduled at: {scheduledDeparture}</Text>
+          )}
+          {(predictedDelay !== null || loadingPrediction) && (
+            <View style={styles.resultBox}>
+              <Text style={styles.infoTitle}>Expected Punctuality:</Text>
+              <Text
+                style={[
+                  loadingPrediction ? styles.processing : predictedDelay === 0 ? styles.delayOnTime : predictedDelay === null ? styles.processing : predictedDelay <= 5 ? styles.delayMinor : styles.delayMajor
+                ]}
+              >
+                {loadingPrediction ? "Processing..."
+                : predictedDelay === 0 ? "On time"
+                : predictedDelay === null ? "No journey at this time. Please try another time." 
+                : `${predictedDelay} minute${predictedDelay === 1 ? "" : "s"} late` }
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
 
       <Pressable
         onPress={resetAll}
@@ -327,7 +345,7 @@ const styles = StyleSheet.create({
   },
   selectedDirectionBtn: {
     borderColor: "grey",
-    backgroundColor: "dark_grey"
+    backgroundColor: "#A39B6C"
   },
   delayOnTime: {
     color: "green",
