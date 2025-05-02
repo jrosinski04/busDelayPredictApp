@@ -85,8 +85,8 @@ def get_closest_journey(req: PredictRequest):
         "stop_name": req.stop_name,
         "destination": req.destination,
         "scheduled_mins": {"$gte": low, "$lte": high},
-        #"is_holiday": date in uk_holidays,
-        #"is_peak": is_peak(dep_mins, date.weekday()),
+        "is_holiday": date in uk_holidays,
+        "is_peak": is_peak(dep_mins, date.weekday()),
     }
     
     # Query and specifying the attributes to return
