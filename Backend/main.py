@@ -79,35 +79,58 @@ def get_closest_journey(req: PredictRequest):
     low = dep_mins - window
     high = dep_mins + window
 
-    # Building filter for MongoDB
+    # Building filter for MongoDB to get journeys around the specified time
     filter = {
         "service_id": req.service_id,
         "stop_name": req.stop_name,
         "destination": req.destination,
         "scheduled_mins": {"$gte": low, "$lte": high},
-        "is_holiday": date in uk_holidays,
-        "is_peak": is_peak(dep_mins, date.weekday()),
+        #"is_holiday": date in uk_holidays,
+        #"is_peak": is_peak(dep_mins, date.weekday()),
     }
     
     # Query and specifying the attributes to return
-    retrieved_journeys = list(journeys_db.find(filter, {
+    retrieved_journeys_general = list(journeys_db.find(filter, {
         "_id": 0,
         "delay_mins": 1,
         "scheduled_mins": 1,
-        "scheduled_dep": 1,
         "actual_mins": 1,
         "journey_id": 1
     }))
 
-    if not retrieved_journeys:
+    # Building filter to get the closest actual journey on the date
+    filter = {
+        "service_id": req.service_id,
+        "stop_name": req.stop_name,
+        "destination": req.destination,
+        "scheduled_mins": {"$gte": low, "$lte": high},
+        "day_of_week": get_day(req.date),
+    }
+
+    # Query and specifying the date attribute
+    retrieved_journeys_dated = list(journeys_db.find(filter, {
+        "scheduled_dep": 1,
+        "scheduled_mins": 1,
+    }))
+
+    if not retrieved_journeys_general:
         raise HTTPException(404, "No matching history found")
     
     # Find closest journey
     closest = min(
-        retrieved_journeys,
+        retrieved_journeys_general,
         key=lambda doc: abs(doc["scheduled_mins"] - dep_mins)
     )
-    return closest
+
+    if retrieved_journeys_dated:
+        closest_on_date = min(
+            retrieved_journeys_dated,
+            key=lambda doc: abs(doc["scheduled_mins"] - dep_mins)
+        )
+    else:
+        closest_on_date = ""
+
+    return {"closest": closest, "closest_on_date": closest_on_date}
 
 def time_to_minutes(timestr: str) -> int:
     h, m = map(int, timestr.split(":"))
@@ -117,11 +140,17 @@ def is_peak(mins: int, weekday: int) -> bool:
     if weekday >= 5: return False
     return (420 <= mins < 540) or (900 <= mins < 1080)
 
+def get_day(date: str) -> int:
+    # Getting the day of the week
+    return datetime.fromisoformat(date).date().weekday()
+
 @app.post("/predict_delay")
 def predict_delay(req: PredictRequest):
 
     # Getting the closest scheduled journey to the user's selected time
-    closest_j = get_closest_journey(req)
+    closest_js = get_closest_journey(req)
+    closest_j = closest_js["closest"]
+    closest_j_with_date = closest_js["closest_on_date"]
 
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
@@ -175,7 +204,9 @@ def predict_delay(req: PredictRequest):
     except Exception as e:
         raise HTTPException(500, f"Model failed to run: {e}")
     
-    return {"predicted_delay_mins": int(prediction), "scheduled_dep": closest_j["scheduled_dep"]}    
+    if not closest_j_with_date:
+        closest_j_with_date = {"scheduled_dep": ""}
+    return {"predicted_delay_mins": int(prediction), "scheduled_dep": closest_j_with_date["scheduled_dep"]}    
 
 result = []
 
