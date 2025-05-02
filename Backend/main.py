@@ -94,6 +94,7 @@ def get_closest_journey(req: PredictRequest):
         "_id": 0,
         "delay_mins": 1,
         "scheduled_mins": 1,
+        "scheduled_dep": 1,
         "actual_mins": 1,
         "journey_id": 1
     }))
@@ -173,37 +174,10 @@ def predict_delay(req: PredictRequest):
         prediction = model.predict(X)[0]
     except Exception as e:
         raise HTTPException(500, f"Model failed to run: {e}")
-
-    return {"predicted_delay_mins": int(prediction)}    
+    
+    return {"predicted_delay_mins": int(prediction), "scheduled_dep": closest_j["scheduled_dep"]}    
 
 result = []
-
-@app.get("/get_service_link")
-async def get_service_link(query: str ):
-    result.clear()
-
-    run_service_spider(query)
-
-    timeout=10
-    while not result and timeout > 0:
-        await asyncio.sleep(0.2)
-        timeout -= 0.2
-
-    if result:
-        return {"link": result[0]['link']}
-    else:
-        return {"error": "No result found"}
-
-
-def handle_service(item, response, spider):
-    result.append(item)
-
-def run_service_spider(query):
-    dispatcher.connect(handle_service, signal=signals.item_passed)
-    runner = CrawlerRunner()
-
-    d = runner.crawl(ServicesSpider, query=query)
-    return d
 
 @app.get("/get_stops")
 def get_stops(service_id: int):
