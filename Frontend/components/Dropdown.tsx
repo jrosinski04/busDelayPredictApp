@@ -1,39 +1,53 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet, TextInput, FlatList, Keyboard, TouchableWithoutFeedback } from "react-native";
+// DropdownComponent.tsx
+import React, { useState, useRef, useEffect } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  FlatList,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from "react-native";
 
-const StopDropdown = ({ stops = [], onSelectStop }) => {
+const DropdownComponent = ({ data = [], placeholder, onSelect, value }) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
 
-  const filteredStops = stops.filter((stop) =>
-    stop.toLowerCase().includes(query.toLowerCase())
+  const filteredData = data.filter((item) =>
+    item.toLowerCase().includes(query.toLowerCase())
   );
 
-  const handleSelect = (stop) => {
-    setQuery(stop);
-    onSelectStop(stop);
+  useEffect(() => {
+    setQuery(value || "");
+  }, [value]);
+
+  const handleSelect = (item) => {
+    setQuery(item);
     setIsOpen(false);
+    onSelect(item);
     Keyboard.dismiss();
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.dropdownContainer}>
+    <TouchableWithoutFeedback onPress={() => { setIsOpen(false); Keyboard.dismiss(); }}>
+      <View style={styles.container}>
         <TextInput
-          placeholder="Search for bus stop"
+          placeholder={placeholder}
           value={query}
-          onFocus={() => setIsOpen(true)} // Show full list when focused
+          onFocus={() => setIsOpen(true)}
           onChangeText={(text) => {
             setQuery(text);
-            setIsOpen(true); // Keep dropdown open while typing
+            setIsOpen(true);
           }}
           style={styles.inputBox}
         />
 
-        {isOpen && filteredStops.length > 0 && (
+        {isOpen && filteredData.length > 0 && (
           <View style={styles.dropdown}>
             <FlatList
-              data={filteredStops}
+              data={filteredData}
               keyExtractor={(item, index) => `${item}-${index}`}
               renderItem={({ item }) => (
                 <Pressable
@@ -55,24 +69,25 @@ const StopDropdown = ({ stops = [], onSelectStop }) => {
 };
 
 const styles = StyleSheet.create({
-  dropdownContainer: {
+  container: {
     width: "100%",
-    marginBottom: 10,
+    marginBottom: 12,
+    zIndex: 999, // ensure it sits on top of other elements
   },
   inputBox: {
     padding: 10,
-    margin: 8,
     borderRadius: 5,
     borderWidth: 1,
+    marginBottom: 4,
+    backgroundColor: "white",
   },
   dropdown: {
-    position: "absolute",
-    width: "100%",
-    maxHeight: 200,
-    backgroundColor: "white",
-    borderColor: "#ccc",
+    marginTop: 0,
     borderWidth: 1,
-    borderRadius: 4,
+    borderColor: "#ccc",
+    borderRadius: 5,
+    backgroundColor: "white",
+    maxHeight: 200,
     zIndex: 1000,
   },
   listItem: {
@@ -85,4 +100,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default StopDropdown;
+export default DropdownComponent;

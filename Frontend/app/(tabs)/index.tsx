@@ -1,112 +1,277 @@
-import { Image, StyleSheet, Platform } from 'react-native';
-
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  Keyboard,
+} from "react-native";
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 import axios from "axios";
-import React, { useState } from "react";
-import ServiceDropdown from '@/components/ServiceDropdown';
-import StopDropdown from '@/components/StopDropdown';
-
+import Dropdown from "@/components/Dropdown";
 
 const MainPage = () => {
   const [servicesList, setServicesList] = useState([]);
-  const [selectedService, setSelectedService] = useState([]);
-  const [stopsList, setStopsList] = useState([]);
-  const [departureDate, setDepartureDate] = useState("");
+  const [selectedService, setSelectedService] = useState("");
+  const [stopsList, setStopsList] = useState<string[]>([]);
+  const [departureDate, setDepartureDate] = useState(new Date());
   const [departureTime, setDepartureTime] = useState("");
   const [departureStop, setDepartureStop] = useState("");
-  const [service, setService] = useState("");
+  const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
+  const [predictedDelay, setPredictedDelay] = useState(null);
+  const [origin, setOrigin] = useState("");
+  const [originalOrigin, setOriginalOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [originalDestination, setOriginalDestination] = useState("")
+  const [showDirectionOptions, setShowDirectionOptions] = useState(false);
 
-  const handleServiceSelect = async (selectedBus) => {
-    try {
-      setSelectedService(selectedBus);
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const response = await axios.get(
+          "https://fetchbusservices.onrender.com/get_services",
+          { params: { query: "" } }
+        );
+        setServicesList(response.data);
+      } catch (error) {
+        console.error("Error fetching services: ", error);
+      }
+    };
+    fetchServices();
+  }, []);
 
-      // Getting link for chosen bus service
-      const linkResponse = await axios.get(
-        'https://fetchbusservices.onrender.com/get_service_link', { params: { query: (selectedBus.Service + "+" + selectedBus.Origin + "+" + selectedBus.Destination) }}
+  useEffect(() => {
+    const isReady =
+      typeof selectedService === 'string' && selectedService.length > 0 &&
+      typeof departureStop === 'string' && departureStop.length > 0 &&
+      departureDate instanceof Date &&
+      typeof departureTime === 'string' && departureTime.length > 0 &&
+      typeof destination === 'string' && destination.length > 0;
+
+    if (isReady) {
+      predictDelay();
+    }
+  }, [selectedService, departureStop, departureDate, departureTime, destination]);
+
+  const showDatePicker = () => setDatePickerVisibility(true);
+  const hideDatePicker = () => setDatePickerVisibility(false);
+
+  const handleDateConfirm = (date) => {
+    setDepartureDate(date);
+    hideDatePicker();
+  };
+
+  const handleServiceSelect = async (selectedLabel) => {
+    const selected = servicesList.find(
+      (s) => `${s.number}: ${s.description}` === selectedLabel
     );
+    if (!selected) return;
 
-      const serviceLink = linkResponse.data.link;
+    setSelectedService(selectedLabel);
+    setDepartureStop("");
 
-      // Getting stops from the extracted link
-      const stopsResponse = await axios.get("https://fetchbusservices.onrender.com/get_stops", {
-        params: { serviceURL: serviceLink }
-      });
+    try {
+      const response = await axios.get(
+        "https://fetchbusservices.onrender.com/get_stops",
+        { params: { service_id: selected._id } }
+      );
+      setStopsList(response.data);
 
-      const stopsList = stopsResponse.data.stops;
-      setStopsList(stopsList);
-
+      setOriginalOrigin(stopsList[0]);
+      setOriginalDestination(stopsList[stopsList.length - 1]);
+      setOrigin(originalOrigin);
+      setDestination(originalDestination);
     } catch (error) {
       console.error("Error fetching stops: ", error);
     }
   };
 
-  const handleStopSelect = async (selectedStop) => {
+  const handleStopSelect = (stop) => {
+    setDepartureStop(stop);
+  };
+
+  const predictDelay = async () => {
     try {
-      setDepartureStop(selectedStop);
+      const selected = servicesList.find(
+        (s) => `${s.number}: ${s.description}` === selectedService
+      );
+      if (!selected) return;
 
-      const response = await fetch('https://fetchbusservices.onrender.com/get_journey_data?serviceURL=${encodeURIComponent(serviceLink)}&stop=${encodedURIComponent(selectedStop)}');
-      const data = await response.json();
+      const params = {
+        service_id: parseInt(selected._id),
+        stop_name: departureStop,
+        destination: destination,
+        date: departureDate.toISOString().split("T")[0],
+        time: departureTime,
+      };
+      console.log(params)
+      const response = await axios.post(
+        "https://fetchbusservices.onrender.com/predict_delay",
+        params,
+        {
+          headers: { "Content-Type": "application/json" }
+        }
+      );
 
-      console.log("Received journey data: ", data);
-
+      setPredictedDelay(response.data.delay);
     } catch (error) {
-      console.error("Error fetching stops or journey data: ", error);
+      console.error("Prediction error:", error);
     }
   };
 
+  const sortedServiceLabels = [...servicesList]
+    .sort((a, b) => parseInt(a.number) - parseInt(b.number))
+    .map((s) => `${s.number}: ${s.description}`);
+
   return (
-    <div style={{height: "90%"}}>
-      <div style={{display: "flex", justifyContent:"space-between", flexDirection:"column", height:"50%", padding:"0.8rem", outline: "2px solid green"}}>
-      <input
-        type="date"
-        value={departureDate}
-        onChange={(e) => setDepartureDate(e.target.value)}
-        style={{"display":"block","padding":"0.8rem","margin":"0.6rem","borderRadius":"0.25rem","borderWidth":"1px"}}
+    <View style={{ padding: 16, marginTop: 50 }}>
+      {/* Date Picker */}
+      <Pressable onPress={showDatePicker}>
+        <TextInput
+          placeholder="Departure date"
+          value={departureDate.toISOString().split("T")[0]}
+          editable={false}
+          style={styles.inputBox}
+        />
+      </Pressable>
+      <DateTimePickerModal
+        isVisible={isDatePickerVisible}
+        mode="date"
+        date={departureDate}
+        onConfirm={handleDateConfirm}
+        onCancel={hideDatePicker}
       />
-      <input
-        type="time"
+
+      {/* Time Input */}
+      <TextInput
+        placeholder="Departure time (HH:MM)"
         value={departureTime}
-        onChange={(e) => setDepartureTime(e.target.value)}
-        style={{"display":"block","padding":"0.8rem","margin":"0.6rem","borderRadius":"0.25rem","borderWidth":"1px"}}
+        onChangeText={setDepartureTime}
+        style={styles.inputBox}
       />
-      <ServiceDropdown onSelectService={handleServiceSelect} />
-      {Object.keys(selectedService).length > 0 && <p>Selected Service: {selectedService.Service + ": " + selectedService.Origin + " - " + selectedService.Destination}</p>}
-      <StopDropdown stops={stopsList} onSelectStop={handleStopSelect} />
-      {Object.keys(departureStop).length > 0 && <p>Selected Bus Stop: {departureStop}</p>}
 
-      <div className="border p-4 mt-4">
-        <h2 className="font-bold text-lg">Service Number</h2>
-        <p>Service origin and destination</p>
-        <p>Scheduled departure: <strong>HH:MM</strong></p>
-        <p>Estimated delay: <strong>(calculated delay)</strong></p>
-      </div>
-      </div>
-    </div>
+      {/* Dropdowns */}
+      <Dropdown
+        data={sortedServiceLabels}
+        placeholder="Search for service"
+        onSelect={handleServiceSelect}
+        value={selectedService}
+      />
+      <Dropdown
+        data={stopsList}
+        placeholder="Search for stop"
+        onSelect={handleStopSelect}
+        value={departureStop}
+      />
+
+      {!showDirectionOptions && selectedService && departureStop && departureDate && departureTime && (
+        <Pressable
+          onPress={() => setShowDirectionOptions(true)}
+          style={styles.continueButton}
+        >
+          <Text style={styles.continueButtonText}>Continue</Text>
+        </Pressable>
+      )}
+
+
+      {showDirectionOptions && (
+        <View style={styles.directionContainer}>
+          <Text style={styles.label}>Choose direction of travel:</Text>
+          <Pressable
+            onPress={() => setDestination(stopsList[stopsList.length - 1])}
+            style={styles.directionButton}
+          >
+            <Text>{stopsList[0]} → {stopsList[stopsList.length - 1]}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setDestination(stopsList[0])}
+            style={styles.directionButton}
+          >
+            <Text>{stopsList[stopsList.length - 1]} → {stopsList[0]}</Text>
+          </Pressable>
+        </View>
+      )}
+
+
+      {/* Display Selections */}
+      <View style={styles.infoSection}>
+        <Text style={styles.infoTitle}>Selected Service</Text>
+        <Text>{selectedService}</Text>
+        <Text style={styles.infoTitle}>Selected Stop</Text>
+        <Text>{departureStop}</Text>
+        <Text style={styles.infoTitle}>Direction</Text>
+        <Text>{destination}</Text>
+        {predictedDelay !== null && (
+          <View style={styles.resultBox}>
+            <Text style={styles.infoTitle}>Predicted Delay:</Text>
+            <Text>{predictedDelay} minutes</Text>
+          </View>
+        )}
+      </View>
+    </View>
   );
-}
-
-export default MainPage;
-
+};
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  inputBox: {
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    backgroundColor: "white",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  infoSection: {
+    marginTop: 20,
+    padding: 10,
+    borderWidth: 1,
+    borderRadius: 5,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  infoTitle: {
+    fontWeight: "bold",
+    fontSize: 16,
+    marginBottom: 4,
   },
+  resultBox: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: "#f0f8ff",
+    borderRadius: 5,
+  },
+  directionContainer: {
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  button: {
+    padding: 10,
+    marginVertical: 4,
+    borderWidth: 1,
+    borderRadius: 5,
+  },
+  continueButton: {
+    backgroundColor: "#007AFF",
+    padding: 12,
+    borderRadius: 6,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  continueButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  directionButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    marginTop: 6,
+    backgroundColor: "#f5f5f5",
+  },
+  label: {
+    fontWeight: "bold",
+    marginBottom: 6,
+  }
+
 });
+
+export default MainPage;

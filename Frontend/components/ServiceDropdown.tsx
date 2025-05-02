@@ -1,79 +1,72 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, TextInput, FlatList, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import axios from "axios";
 
 const ServiceDropdown = ({ onSelectService }) => {
     const [services, setServices] = useState([]);
     const [query, setQuery] = useState("");
-    const [hoverStates, setHoverStates] = React.useState({});
     const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState("");
-    const dropdownRef = useRef(null);
-
-    const handleHover = (index, value) => {
-        setHoverStates(prev => ({ ...prev, [index]: value }));
-    };
-
-    useEffect(() => {
-        if (query.length > 0) {
-            fetchServices(query);
-        }
-    }, [query]);
-
-    // Close dropdown menu when search box is deselected
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-    }, []);
 
     const fetchServices = async (query) => {
         try {
             const response = await axios.get(
-                'https://fetchbusservices.onrender.com/get_services', { params: {query: query }, }
+                "https://fetchbusservices.onrender.com/get_services",
+                { params: { query } }
             );
-            console.log("Response status: ", response.status);
-            console.log("Response data: ", response.data);
             setServices(response.data);
-            console.log(services);
         } catch (error) {
             console.error("Error fetching services: ", error);
         }
     };
 
+    const handleSelect = (service) => {
+        onSelectService(service);
+        setIsOpen(false);
+        setQuery(""); // Optional: clear input
+        Keyboard.dismiss();
+    };
+
     return (
-        <div ref={dropdownRef} style={{position: 'relative', width: '100%'}}>
-            <input
-                type="text"
-                placeholder="Search for route"
-                value={query}
-                onFocus={() => setIsOpen(true)}
-                onChange={(e) => setQuery(e.target.value)}
-                style={{"display":"block","padding":"0.8rem","margin":"0.6rem","borderRadius":"0.25rem","borderWidth":"1px"}}
-            />
-            {isOpen && (
-                <div style={styles.dropdown}>
-                {services.map((service, index) => (
-                    <Pressable
-                        key={service._id}
-                        style={{
-                            ...styles.listItem, 
-                            ...(hoverStates[index] ? styles.hoveredItem : {})
-                        }}
-                        onPressIn={() => handleHover(index, true)}
-                        onPressOut={() => handleHover(index, false)}
-                        onPress={() => { onSelectService(service); setIsOpen(false);}}
-                    >
-                        <Text>{service.Service}: {service.Origin} + {service.Destination}</Text>
-                    </Pressable>
-                ))}
-                </div>
-            )}
-            
-        </div>
+            <View style={styles.dropdownContainer}>
+                <TextInput
+                    placeholder="Search for route"
+                    value={query}
+                    onFocus={() => {
+                        setIsOpen(true)
+                        fetchServices("");
+                    }}
+                    onChangeText={(text) => {
+                        setQuery(text);
+                        fetchServices(text);
+                    }}
+                    onTouchEnd={() => {
+                        setIsOpen(false)
+                    }}
+                    style={styles.inputBox}
+                />
+
+                {isOpen && services.length > 0 && (
+                    <View style={styles.dropdown}>
+                        <FlatList
+                            data={services}
+                            keyExtractor={(item) => item._id}
+                            renderItem={({ item }) => (
+                                <Pressable
+                                    onPress={() => handleSelect(item)}
+                                    style={({ pressed }) => [
+                                        styles.listItem,
+                                        pressed && styles.pressedItem,
+                                    ]}
+                                >
+                                    <Text>
+                                        {item.number}: {item.description}
+                                    </Text>
+                                </Pressable>
+                            )}
+                        />
+                    </View>
+                )}
+            </View>
     );
 };
 
@@ -81,28 +74,34 @@ const styles = StyleSheet.create({
     listItem: {
         padding: 2,
         borderStyle: 'solid',
-        borderColor: 'gray',
+        borderColor: 'grey',
         borderWidth: 1,
-        backgroundColor: 'orange'
+        backgroundColor: 'grey'
     },
     hoveredItem: {
         backgroundColor: 'black'
     },
     dropdownContainer: {
         position: 'relative',
-        width: '100%'
+        width: '100%',
     },
     dropdown: {
         position: 'absolute',
+        marginTop: 50,
         width: '100%',
         maxHeight: 200,
         overflowY: 'auto',
-        backgroundColor: 'white',
         borderColor: '#ccc',
         borderStyle: 'solid',
         borderRadius: 4,
         boxShadow: '0px 4px 6px rgba(0,0,0,0.1)',
         zIndex: 1000,
+    },
+    inputBox: {
+        padding: 10,
+        margin: 8,
+        borderRadius: 5,
+        borderWidth: 1
     },
 });
 
