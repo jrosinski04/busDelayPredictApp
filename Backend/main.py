@@ -98,8 +98,6 @@ def get_closest_journey(req: PredictRequest):
         "journey_id": 1
     }))
 
-    return retrieved_journeys
-
     if not retrieved_journeys:
         raise HTTPException(404, "No matching history found")
     
