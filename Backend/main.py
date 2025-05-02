@@ -88,6 +88,8 @@ def get_closest_journey(req: PredictRequest):
         "is_holiday": date in uk_holidays,
         "is_peak": is_peak(dep_mins, date.weekday()),
     }
+
+    return filter
     
     # Query and specifying the attributes to return
     retrieved_journeys = list(journeys_db.find(filter, {
@@ -97,6 +99,9 @@ def get_closest_journey(req: PredictRequest):
         "actual_mins": 1,
         "journey_id": 1
     }))
+
+    print(f"🔍 found {len(retrieved_journeys)} candidates")
+
 
     if not retrieved_journeys:
         raise HTTPException(404, "No matching history found")
@@ -121,6 +126,7 @@ def predict_delay(req: PredictRequest):
 
     # Getting the closest scheduled journey to the user's selected time
     closest_j = get_closest_journey(req)
+    return closest_j
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
     
