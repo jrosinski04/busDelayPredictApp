@@ -19,12 +19,13 @@ const MainPage = () => {
   const [departureTime, setDepartureTime] = useState("");
   const [departureStop, setDepartureStop] = useState("");
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
-  const [predictedDelay, setPredictedDelay] = useState(null);
+  const [predictedDelay, setPredictedDelay] = useState<number | null>(null);
   const [origin, setOrigin] = useState("");
   const [originalOrigin, setOriginalOrigin] = useState("");
   const [destination, setDestination] = useState("");
-  const [originalDestination, setOriginalDestination] = useState("")
-  const [showDirectionOptions, setShowDirectionOptions] = useState(false);
+  const [originalDestination, setOriginalDestination] = useState("");
+  const [directionSelected, setDirectionSelected] = useState(false);
+  const [loadingPrediction, setLoadingPrediction] = useState(false);
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -47,9 +48,11 @@ const MainPage = () => {
       typeof departureStop === 'string' && departureStop.length > 0 &&
       departureDate instanceof Date &&
       typeof departureTime === 'string' && departureTime.length > 0 &&
-      typeof destination === 'string' && destination.length > 0;
+      typeof destination === 'string' && destination.length > 0 &&
+      directionSelected;
 
     if (isReady) {
+      console.log("predictDelay called!")
       predictDelay();
     }
   }, [selectedService, departureStop, departureDate, departureTime, destination]);
@@ -61,6 +64,32 @@ const MainPage = () => {
     setDepartureDate(date);
     hideDatePicker();
   };
+
+  const resetAll = () => {
+    setSelectedService("");
+    setDepartureStop("");
+    setDepartureDate(new Date());
+    setDepartureTime("");
+    setDestination("");
+    setOriginalDestination("");
+    setOrigin("");
+    setOriginalOrigin("");
+    setStopsList([]);
+    setDirectionSelected(false);
+    setPredictedDelay(null);
+  }
+
+  const test = () => {
+    console.log("Selected service: " + (typeof selectedService === 'string' && selectedService.length > 0));
+    console.log("Departure stop: " + (typeof departureStop === 'string' && departureStop.length > 0));
+    console.log("Departure date: " + (departureDate instanceof Date));
+    console.log("Departure time: " + (typeof departureTime === 'string' && departureTime.length > 0));
+    console.log("Destination: " + (typeof destination === 'string' && destination.length > 0));
+    console.log("Destination: " + destination);
+    console.log("Original Destination: " + originalDestination)
+    console.log("Origin: " + origin);
+    console.log("Original origin: " + originalOrigin)
+  }
 
   const handleServiceSelect = async (selectedLabel) => {
     const selected = servicesList.find(
@@ -76,12 +105,19 @@ const MainPage = () => {
         "https://fetchbusservices.onrender.com/get_stops",
         { params: { service_id: selected._id } }
       );
-      setStopsList(response.data);
+      const stops = response.data;
+      setStopsList(stops);
 
-      setOriginalOrigin(stopsList[0]);
-      setOriginalDestination(stopsList[stopsList.length - 1]);
-      setOrigin(originalOrigin);
-      setDestination(originalDestination);
+      const org = stops[0];
+      const des = stops[stops.length - 1];
+
+      setOriginalOrigin(org);
+      setOriginalDestination(des);
+      setOrigin(org);
+      setDestination(des);
+      setDirectionSelected(true);
+
+      console.log(origin)
     } catch (error) {
       console.error("Error fetching stops: ", error);
     }
@@ -93,6 +129,7 @@ const MainPage = () => {
 
   const predictDelay = async () => {
     try {
+      setLoadingPrediction(true);
       const selected = servicesList.find(
         (s) => `${s.number}: ${s.description}` === selectedService
       );
@@ -113,10 +150,13 @@ const MainPage = () => {
           headers: { "Content-Type": "application/json" }
         }
       );
-      console.log(response.data)
-      setPredictedDelay(response.data.delay);
+      setPredictedDelay(response.data.predicted_delay_mins);
+      console.log(predictedDelay)
     } catch (error) {
-      console.error("Prediction error:", error);
+      console.log("Prediction error:", error);
+      setPredictedDelay(0);
+    } finally {
+      setLoadingPrediction(false);
     }
   };
 
@@ -165,31 +205,29 @@ const MainPage = () => {
         value={departureStop}
       />
 
-      {!showDirectionOptions && selectedService && departureStop && departureDate && departureTime && (
-        <Pressable
-          onPress={() => setShowDirectionOptions(true)}
-          style={styles.continueButton}
-        >
-          <Text style={styles.continueButtonText}>Continue</Text>
-        </Pressable>
-      )}
-
-
-      {showDirectionOptions && (
+      {selectedService && departureStop && departureDate && departureTime && (
         <View style={styles.directionContainer}>
           <Text style={styles.label}>Choose direction of travel:</Text>
           <Pressable
-            onPress={() => setDestination(stopsList[stopsList.length - 1])}
-            style={styles.directionButton}
+            onPress={() => { setDestination(originalDestination), setDirectionSelected(true) }}
+            style={[
+              styles.directionButton,
+              destination === originalDestination && styles.selectedDirectionBtn
+            ]}
           >
             <Text>{stopsList[0]} → {stopsList[stopsList.length - 1]}</Text>
           </Pressable>
           <Pressable
-            onPress={() => setDestination(stopsList[0])}
-            style={styles.directionButton}
+            onPress={() => { setDestination(originalOrigin), setDirectionSelected(true) }}
+            style={[
+              styles.directionButton,
+              destination === originalOrigin && styles.selectedDirectionBtn
+            ]}
           >
             <Text>{stopsList[stopsList.length - 1]} → {stopsList[0]}</Text>
           </Pressable>
+
+
         </View>
       )}
 
@@ -202,13 +240,28 @@ const MainPage = () => {
         <Text>{departureStop}</Text>
         <Text style={styles.infoTitle}>Direction</Text>
         <Text>{destination}</Text>
-        {predictedDelay !== null && (
+        {(predictedDelay !== null || loadingPrediction) && (
           <View style={styles.resultBox}>
-            <Text style={styles.infoTitle}>Predicted Delay:</Text>
-            <Text>{predictedDelay} minutes</Text>
+            <Text style={styles.infoTitle}>Expected Punctuality:</Text>
+            <Text
+              style={[
+                loadingPrediction ? styles.processing : predictedDelay === 0 || predictedDelay === null ? styles.delayOnTime : predictedDelay <= 5 ? styles.delayMinor : styles.delayMajor
+              ]}
+            >
+              {loadingPrediction ? "Processing..." : predictedDelay === 0 || predictedDelay === null ? "On time" : `${predictedDelay} minute${predictedDelay === 1 ? "" : "s"}`}
+            </Text>
           </View>
         )}
       </View>
+
+      <Pressable
+        onPress={resetAll}
+        style={styles.button}
+      >
+        <Text style={styles.label}>Reset</Text>
+      </Pressable>
+
+      <Text>Disclaimer: This app provides AI-generated delay estimates based on available historical data. The prediction information is suggestive and should not be taken as definitive. </Text>
     </View>
   );
 };
@@ -243,10 +296,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   button: {
-    padding: 10,
-    marginVertical: 4,
-    borderWidth: 1,
-    borderRadius: 5,
+    backgroundColor: "#deb940",
+    padding: 12,
+    borderRadius: 6,
+    alignItems: "center",
+    marginTop: 10,
   },
   continueButton: {
     backgroundColor: "#007AFF",
@@ -270,8 +324,30 @@ const styles = StyleSheet.create({
   label: {
     fontWeight: "bold",
     marginBottom: 6,
+  },
+  selectedDirectionBtn: {
+    borderColor: "grey",
+    backgroundColor: "dark_grey"
+  },
+  delayOnTime: {
+    color: "green",
+    fontWeight: "bold",
+    fontSize: 20,
+  },
+  delayMinor: {
+    color: "orange",
+    fontWeight: "bold",
+    fontSize: 20,
+  },
+  delayMajor: {
+    color: "red",
+    fontWeight: "bold",
+    fontSize: 20,
+  },
+  processing: {
+    color: "black",
+    fontStyle: "italic",
   }
-
 });
 
 export default MainPage;
