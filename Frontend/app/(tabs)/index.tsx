@@ -113,7 +113,7 @@ const MainPage = () => {
           headers: { "Content-Type": "application/json" }
         }
       );
-
+      console.log(response.data)
       setPredictedDelay(response.data.delay);
     } catch (error) {
       console.error("Prediction error:", error);

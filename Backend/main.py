@@ -88,8 +88,6 @@ def get_closest_journey(req: PredictRequest):
         "is_holiday": date in uk_holidays,
         "is_peak": is_peak(dep_mins, date.weekday()),
     }
-
-    return filter
     
     # Query and specifying the attributes to return
     retrieved_journeys = list(journeys_db.find(filter, {
@@ -100,8 +98,7 @@ def get_closest_journey(req: PredictRequest):
         "journey_id": 1
     }))
 
-    print(f"🔍 found {len(retrieved_journeys)} candidates")
-
+    return retrieved_journeys
 
     if not retrieved_journeys:
         raise HTTPException(404, "No matching history found")
