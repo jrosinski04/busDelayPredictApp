@@ -124,16 +124,15 @@ def predict_delay(req: PredictRequest):
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
     
-    
     # Getting route info
     svc = services_db.find_one({"_id": req.service_id})
     if not svc:
         raise HTTPException(404, f"Service {req.service_id} not found.")
-    
+
     # Splitting route description into origin and destination
     if "description" not in svc:
         raise HTTPException(500, "Service description missing origin/destination")
-    origin, destination = [p.strip() for p in svc["description"].split("-")]
+    origin, destination = [p.strip() for p in svc["description"].split(" - ")]
 
     # Looking up stop index
     sample = journeys_db.find_one(
