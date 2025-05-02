@@ -205,44 +205,6 @@ def run_service_spider(query):
     d = runner.crawl(ServicesSpider, query=query)
     return d
 
-@app.get("/get_stops_api")
-def get_stops_basic(service_id: int):
-    # Getting journey details
-    resp = requests.get(f"https://bustimes.org/api/vehiclejourneys/?service={service_id}", params={"page_size": 100}, timeout=10)
-    resp.raise_for_status()
-    journeys = resp.json().get("results")
-
-    # Get service details
-    resp = requests.get(f"http://bustimes.org/api/services/{service_id}", params={"page_size": 1}, timeout = 10)
-    resp.raise_for_status()
-    svc = resp.json()
-    destination = svc["description"].split("-")[-1].lstrip()
-
-
-    if not journeys or not svc:
-        return {"stops": []}
-    
-    journey_index = 0
-    while (True):
-        if journey_index > 5:
-            return {"stops": []}
-
-        journey = journeys[journey_index]
-        journey_id = journey["id"]
-
-        stops_resp = requests.get(
-            f"https://bustimes.org/api/vehiclejourneys/{journey_id}", timeout=10
-        )
-        stops_resp.raise_for_status()
-        stops = [ stop["stop"]["name"] for stop in stops_resp.json().get("times", []) if stop.get("stop").get("name")]
-
-        if destination in stops[-1]:
-            break
-        journey_index += 1
- 
-    return stops
-
-
 @app.get("/get_stops")
 def get_stops(service_id: int):
     # Get journey details
@@ -277,6 +239,9 @@ def get_stops(service_id: int):
         if destination in stops[-1]:
             break
         journey_index += 1
+
+        if journey_index > 2:
+            return stops
  
     return stops
 
