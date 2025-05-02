@@ -121,7 +121,7 @@ def predict_delay(req: PredictRequest):
 
     # Getting the closest scheduled journey to the user's selected time
     closest_j = get_closest_journey(req)
-    return closest_j
+
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
     
