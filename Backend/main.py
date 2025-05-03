@@ -1,35 +1,29 @@
 import uvicorn
-import crochet
-import asyncio
-import traceback
 import joblib
 import pandas as pd
 import holidays
 import requests
-from crochet import setup, wait_for
-from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Body
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pymongo import MongoClient
 from pydantic import BaseModel
-from scrapy.crawler import CrawlerRunner
-from scrapy.signalmanager import dispatcher
-from scrapy.utils.project import get_project_settings
-from scrapy import signals
-
 from stops_spider import StopsSpider
 from services_spider import ServicesSpider
 from bus_journeys_spider import BusJourneysSpider
 
-setup()
 app = FastAPI()
 client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
 db = client["BusDelayPredict"]
 services_db = db["servicesBN"]
 journeys_db = db["journeysBN"]
-model = joblib.load("delay_predictor_lgbm.pkl")
+model = joblib.load("models/lgbm.pkl")
+scaler = joblib.load("models/scaler.pkl")
+
 uk_holidays = holidays.UK(subdiv="ENG")
+
+NUMERIC_FEATURES     = ["scheduled_mins", "day_of_week", "stop_index"]
+CATEGORICAL_FEATURES = ["is_holiday","is_peak","service_id","stop_name","origin","destination"]
 
 # Enable CORS (Allow React frontend to access API)
 app.add_middleware(
@@ -185,22 +179,29 @@ def predict_delay(req: PredictRequest):
     peak = is_peak(sched_mins, day_of_week)
 
     # Assembling feature row
-    row = {
+    df = pd.DataFrame([{
         "scheduled_mins": closest_j["scheduled_mins"],
-        "day_of_week": [day_of_week],
-        "is_peak": [peak],
-        "stop_index": [stop_idx],
-        "service_id": [req.service_id],
-        "stop_name": [req.stop_name],
-        "origin": [origin],
-        "destination": [destination],
-    }
+        "day_of_week": day_of_week,
+        "is_peak": peak,
+        "is_holiday": j_date in uk_holidays,
+        "stop_index": stop_idx,
+        "service_id": req.service_id,
+        "stop_name": req.stop_name,
+        "origin": origin,
+        "destination": destination,
+    }])
 
-    X = pd.DataFrame(row)
+    numeric_values = scaler.transform(df[NUMERIC_FEATURES])
+    df_num = pd.DataFrame(numeric_values, columns=NUMERIC_FEATURES)
+
+    df_final = pd.concat([df_num, df[CATEGORICAL_FEATURES]], axis=1)
+
+    for col in CATEGORICAL_FEATURES:
+        df_final[col] = df_final[col].astype("category")
 
     # Model prediction
     try:
-        prediction = model.predict(X)[0]
+        prediction = model.predict(df_final)[0]
     except Exception as e:
         raise HTTPException(500, f"Model failed to run: {e}")
     
