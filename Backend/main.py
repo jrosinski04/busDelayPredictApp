@@ -9,9 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from pydantic import BaseModel
-from stops_spider import StopsSpider
-from services_spider import ServicesSpider
-from bus_journeys_spider import BusJourneysSpider
+
 
 app = FastAPI()
 client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
@@ -149,7 +147,7 @@ def predict_delay(req: PredictRequest):
 
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
-
+    
     svc = services_db.find_one({"_id": req.service_id})
     if not svc or "description" not in svc:
         raise HTTPException(500, "Service description missing")
@@ -173,28 +171,41 @@ def predict_delay(req: PredictRequest):
     day_of_week = j_date.weekday()
     is_holiday = j_date in uk_holidays
 
-    # Build feature vector
-    row = {
-        "time_sin": [np.sin(2 * np.pi * closest_j["scheduled_mins"] / 1440)],
-        "time_cos": [np.cos(2 * np.pi * closest_j["scheduled_mins"] / 1440)],
+    try:
+        scheduled_mins = closest_j.get("scheduled_mins", 720)  # default to 12:00 if missing
+        origin_enc = target_maps["origin"].get(origin.strip(), 0)
+        destination_enc = target_maps["destination"].get(destination.strip(), 0)
+        stop_name_enc = target_maps["stop_name"].get(req.stop_name.strip(), 0)
+
+        print("closest_j:", closest_j)
+        print("origin:", origin)
+        print("destination:", destination)
+        print("stop_name:", req.stop_name)
+
+        row = {
+        "time_sin": [np.sin(2 * np.pi * scheduled_mins / 1440)],
+        "time_cos": [np.cos(2 * np.pi * scheduled_mins / 1440)],
         "day_of_week": [day_of_week],
         "is_holiday": [is_holiday],
         "service_id": [req.service_id],
         "stop_index": [stop_idx],
-        "origin_te": [target_maps["origin"].get(origin, 0)],
-        "destination_te": [target_maps["destination"].get(destination, 0)],
-        "stop_name_te": [target_maps["stop_name"].get(req.stop_name, 0)],
-    }
+        "origin_te": [origin_enc],
+        "destination_te": [destination_enc],
+        "stop_name_te": [stop_name_enc],
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to build feature vector: {e}")
+    
     X = pd.DataFrame(row)
 
     try:
         prediction = model.predict(X)[0]
     except Exception as e:
         raise HTTPException(500, f"Prediction failed: {e}")
-
+    
     return {
         "predicted_delay_mins": int(prediction),
-        "scheduled_dep": closest_j_with_date["scheduled_dep"]
+        "scheduled_dep": closest_j_with_date
     }
 
 result = []
