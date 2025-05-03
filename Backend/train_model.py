@@ -1,121 +1,55 @@
 import pandas as pd
-import numpy as np
+import lightgbm as lgb
 import joblib
+import matplotlib.pyplot as plt
+
 from pymongo import MongoClient
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils import resample
-from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 from sklearn.metrics import mean_squared_error
-import os
+import numpy as np
 
-# Configuration
-MONGO_URI  = "mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict"
-DB_NAME    = "BusDelayPredict"
-COLLECTION = "journeysBN"
+client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+df = pd.DataFrame(list(client["BusDelayPredict"]["journeysBN"].find({})))
+client.close()
 
-# Feature definitions
-NUMERIC_FEATURES     = ["scheduled_mins", "day_of_week", "stop_index"]
-CATEGORICAL_FEATURES = ["is_holiday", "is_peak", "service_id", "stop_name", "origin", "destination"]
-ALL_FEATURES         = NUMERIC_FEATURES + CATEGORICAL_FEATURES
-TARGET               = "delay_mins"
+# Add cyclic time-of-day features
+df["scheduled_mins"] = df["scheduled_mins"].astype(int)
+df["time_sin"] = np.sin(2 * np.pi * df["scheduled_mins"] / 1440)
+df["time_cos"] = np.cos(2 * np.pi * df["scheduled_mins"] / 1440)
 
-def is_peak(mins: int, weekday: int) -> bool:
-    if weekday >= 5:
-        return False
-    return (420 <= mins < 540) or (900 <= mins < 1080)
+# Target encoding
+for col in ["origin", "destination", "stop_name"]:
+    mean_map = df.groupby(col)["delay_mins"].mean().to_dict()
+    df[f"{col}_te"] = df[col].map(mean_map)
 
-def main():
-    # 1) Load raw data from MongoDB
-    client = MongoClient(MONGO_URI)
-    df = pd.DataFrame(list(client[DB_NAME][COLLECTION].find({})))
-    client.close()
+# Define features and target
+features = [
+    "time_sin", "time_cos", "day_of_week", "is_holiday",
+    "service_id", "stop_index",
+    "origin_te", "destination_te", "stop_name_te"
+]
+X = df[features]
+y = df["delay_mins"]
 
-    # 2) Drop rows with missing target or numeric features
-    df = df.dropna(subset=[TARGET] + NUMERIC_FEATURES + ["day_of_week"])
+# Train/test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 3) Compute day_of_week and is_peak if missing
-    if "day_of_week" not in df:
-        df["day_of_week"] = pd.to_datetime(df["date"]).dt.weekday
-    if "is_peak" not in df:
-        df["is_peak"] = df.apply(lambda r: is_peak(r["scheduled_mins"], r["day_of_week"]), axis=1)
+# Train model
+model = lgb.LGBMRegressor(random_state=42)
+model.fit(X_train, y_train)
 
-    # 4) Split into train/test
-    X = df[ALL_FEATURES]
-    y = df[TARGET]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+# Evaluate
+y_pred = model.predict(X_test)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+print(f"Test RMSE with target-encoded features: {rmse:.2f}")
 
-    # 5) Tapered up-sampling (30% of zero delays)
-    train_df   = pd.concat([X_train, y_train.reset_index(drop=True)], axis=1)
-    df_zero    = train_df[train_df[TARGET] == 0]
-    df_nonzero = train_df[train_df[TARGET] >  0]
-    n_zero     = len(df_zero)
-    n_up       = int(n_zero * 0.3)
-    df_nonzero_up = resample(
-        df_nonzero,
-        replace=True,
-        n_samples=n_up,
-        random_state=42
-    )
-    df_balanced = pd.concat([df_zero, df_nonzero_up]).reset_index(drop=True)
-    Xb = df_balanced[ALL_FEATURES]
-    yb = df_balanced[TARGET]
+# Save model
+joblib.dump(model, "lgbm_model.pkl")
 
-    # 6) Scale numeric features
-    scaler = StandardScaler()
-    Xb_num      = scaler.fit_transform(Xb[NUMERIC_FEATURES])
-    Xtest_num   = scaler.transform(X_test[NUMERIC_FEATURES])
-    Xb_prepared = pd.concat([
-        pd.DataFrame(Xb_num, columns=NUMERIC_FEATURES),
-        Xb[CATEGORICAL_FEATURES].reset_index(drop=True)
-    ], axis=1)
-    Xtest_prepared = pd.concat([
-        pd.DataFrame(Xtest_num, columns=NUMERIC_FEATURES),
-        X_test[CATEGORICAL_FEATURES].reset_index(drop=True)
-    ], axis=1)
-
-    # 6.1) Cast all categorical columns to pd.Categorical
-    for col in CATEGORICAL_FEATURES:
-        Xb_prepared[col]    = Xb_prepared[col].astype("category")
-        Xtest_prepared[col] = Xtest_prepared[col].astype("category")
-
-    # 7) Configure LightGBM with Huber objective and regularization
-    model = LGBMRegressor(
-        objective="huber",
-        alpha=0.9,
-        n_estimators=500,
-        learning_rate=0.05,
-        num_leaves=31,
-        min_child_samples=20,
-        reg_alpha=0.1,
-        reg_lambda=0.1,
-        random_state=42,
-        categorical_feature=CATEGORICAL_FEATURES,
-        verbosity=-1
-    )
-
-    # 8) Fit with early stopping and logging callback
-    model.fit(
-        Xb_prepared, yb,
-        eval_set=[(Xtest_prepared, y_test)],
-        callbacks=[
-            early_stopping(stopping_rounds=20),
-            log_evaluation(period=20)
-        ]
-    )
-
-    # 9) Evaluate performance
-    preds = model.predict(Xtest_prepared)
-    rmse  = np.sqrt(mean_squared_error(y_test, preds))
-    print(f"Test RMSE: {rmse:.2f} minutes")
-
-    # 10) Save scaler and model
-    os.makedirs("models", exist_ok=True)
-    joblib.dump(scaler, "models/scaler.pkl")
-    joblib.dump(model,   "models/best_lgbm_delay.pkl")
-    print("Saved scaler and model to models/")
-
-if __name__ == "__main__":
-    main()
+# Save target encodings as dictionaries
+target_maps = {
+    "origin": df.groupby("origin")["delay_mins"].mean().to_dict(),
+    "destination": df.groupby("destination")["delay_mins"].mean().to_dict(),
+    "stop_name": df.groupby("stop_name")["delay_mins"].mean().to_dict()
+}
+joblib.dump(target_maps, "target_encodings.pkl")

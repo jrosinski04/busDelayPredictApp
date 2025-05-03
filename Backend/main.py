@@ -1,6 +1,7 @@
 import uvicorn
 import joblib
 import pandas as pd
+import numpy as np
 import holidays
 import requests
 from datetime import datetime
@@ -17,7 +18,9 @@ client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongod
 db = client["BusDelayPredict"]
 services_db = db["servicesBN"]
 journeys_db = db["journeysBN"]
-model = joblib.load("models/lgbm.pkl")
+model = joblib.load("models/lgbm_model.pkl")
+target_maps = joblib.load("models/target_encodings.pkl")  # contains origin, destination, stop_name → mean delay mappings
+
 scaler = joblib.load("models/scaler.pkl")
 
 uk_holidays = holidays.UK(subdiv="ENG")
@@ -140,74 +143,59 @@ def get_day(date: str) -> int:
 
 @app.post("/predict_delay")
 def predict_delay(req: PredictRequest):
-
-    # Getting the closest scheduled journey to the user's selected time
     closest_js = get_closest_journey(req)
     closest_j = closest_js["closest"]
     closest_j_with_date = closest_js["closest_on_date"]
 
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
-    
-    # Getting route info
-    svc = services_db.find_one({"_id": req.service_id})
-    if not svc:
-        raise HTTPException(404, f"Service {req.service_id} not found.")
 
-    # Splitting route description into origin and destination
-    if "description" not in svc:
-        raise HTTPException(500, "Service description missing origin/destination")
+    svc = services_db.find_one({"_id": req.service_id})
+    if not svc or "description" not in svc:
+        raise HTTPException(500, "Service description missing")
+
     origin, destination = [p.strip() for p in svc["description"].split(" - ")]
 
-    # Looking up stop index
     sample = journeys_db.find_one(
         {"service_id": req.service_id, "stop_name": req.stop_name},
         {"stop_index": 1}
     )
     if not sample:
-        raise HTTPException(404, f"Stop {req.stop_name!r} not found on service.")
+        raise HTTPException(404, f"Stop {req.stop_name!r} not found.")
     stop_idx = sample["stop_index"]
 
-    # Parsing time and date
     try:
         j_date = datetime.fromisoformat(req.date).date()
         sched_mins = time_to_minutes(req.time)
     except Exception as e:
-        raise HTTPException(400, f"Invalid date/time format: {e}")
-    
+        raise HTTPException(400, f"Invalid date/time: {e}")
+
     day_of_week = j_date.weekday()
-    peak = is_peak(sched_mins, day_of_week)
+    is_holiday = j_date in uk_holidays
 
-    # Assembling feature row
-    df = pd.DataFrame([{
-        "scheduled_mins": closest_j["scheduled_mins"],
-        "day_of_week": day_of_week,
-        "is_peak": peak,
-        "is_holiday": j_date in uk_holidays,
-        "stop_index": stop_idx,
-        "service_id": req.service_id,
-        "stop_name": req.stop_name,
-        "origin": origin,
-        "destination": destination,
-    }])
+    # Build feature vector
+    row = {
+        "time_sin": [np.sin(2 * np.pi * closest_j["scheduled_mins"] / 1440)],
+        "time_cos": [np.cos(2 * np.pi * closest_j["scheduled_mins"] / 1440)],
+        "day_of_week": [day_of_week],
+        "is_holiday": [is_holiday],
+        "service_id": [req.service_id],
+        "stop_index": [stop_idx],
+        "origin_te": [target_maps["origin"].get(origin, 0)],
+        "destination_te": [target_maps["destination"].get(destination, 0)],
+        "stop_name_te": [target_maps["stop_name"].get(req.stop_name, 0)],
+    }
+    X = pd.DataFrame(row)
 
-    numeric_values = scaler.transform(df[NUMERIC_FEATURES])
-    df_num = pd.DataFrame(numeric_values, columns=NUMERIC_FEATURES)
-
-    df_final = pd.concat([df_num, df[CATEGORICAL_FEATURES]], axis=1)
-
-    for col in CATEGORICAL_FEATURES:
-        df_final[col] = df_final[col].astype("category")
-
-    # Model prediction
     try:
-        prediction = model.predict(df_final)[0]
+        prediction = model.predict(X)[0]
     except Exception as e:
-        raise HTTPException(500, f"Model failed to run: {e}")
-    
-    if not closest_j_with_date:
-        closest_j_with_date = {"scheduled_dep": ""}
-    return {"predicted_delay_mins": int(prediction), "scheduled_dep": closest_j_with_date["scheduled_dep"]}    
+        raise HTTPException(500, f"Prediction failed: {e}")
+
+    return {
+        "predicted_delay_mins": int(prediction),
+        "scheduled_dep": closest_j_with_date
+    }
 
 result = []
 
