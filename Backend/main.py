@@ -48,7 +48,7 @@ def home():
     return {"message": "FastAPI is running!"}
 
 @app.get("/get_services")
-async def get_services(query: str ):
+def get_services(query: str ):
     services = services_db.find(
     {
         "$or": [
