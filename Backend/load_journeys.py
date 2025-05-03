@@ -5,8 +5,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # CONFIGURATION PARAMETERS
-MONGO_URI    = "mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict"
-DB_NAME      = "BusDelayPredict"
 SERVICES_COL = "servicesBN"
 JOURNEYS_COL = "journeysBN"
 
@@ -26,8 +24,8 @@ def chunk_list(list, size):
 
 def load_journeys():
     # Connecting to MongoDB and fetching the bus services
-    client = MongoClient(MONGO_URI)
-    db = client[DB_NAME]
+    client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+    db = client["BusDelayPredict"]
     service_ids = [s["_id"] for s in db[SERVICES_COL].find({}, {"_id":1})]
     journeys_col = db[JOURNEYS_COL]
 

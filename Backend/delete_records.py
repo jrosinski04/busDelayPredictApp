@@ -4,4 +4,4 @@ client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongod
 db = client["BusDelayPredict"]
 collection = db["journeysBN"]
 
-collection.delete_many({})  # Deletes all documents in the collection
+collection.delete_many({})

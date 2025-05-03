@@ -2,7 +2,8 @@ import pandas as pd
 import lightgbm as lgb
 import joblib
 import matplotlib.pyplot as plt
-
+from sklearn.model_selection import GridSearchCV
+from lightgbm import LGBMRegressor
 from pymongo import MongoClient
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
@@ -34,22 +35,35 @@ y = df["delay_mins"]
 # Train/test split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Train model
-model = lgb.LGBMRegressor(random_state=42, learning_rate=0.15, max_depth=30, min_child_samples=15, n_estimators=200, num_leaves=75)
-model.fit(X_train, y_train)
+param_grid = {
+    "num_leaves": [50, 63, 75],
+    "max_depth": [10, 15, 20],
+    "learning_rate": [0.2, 0.15, 0.1],
+    "n_estimators": [100, 200],
+    "min_child_samples": [15, 25]
+}
 
-# Evaluate
-y_pred = model.predict(X_test)
+model = LGBMRegressor(random_state=42)
+
+grid = GridSearchCV(
+    model,
+    param_grid,
+    scoring="neg_root_mean_squared_error",
+    cv=2,
+    verbose=1,
+    n_jobs=-1
+)
+
+grid.fit(X_train, y_train)
+
+print("Best Parameters:", grid.best_params_)
+print("Best RMSE:", -grid.best_score_)
+
+# Optionally test it on the test set
+best_model = grid.best_estimator_
+y_pred = best_model.predict(X_test)
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-print(f"Test RMSE with target-encoded features: {rmse:.2f}")
+print(f"Test RMSE of best model: {rmse:.2f}")
 
 # Save model
-joblib.dump(model, "lgbm_model.pkl")
-
-# Save target encodings as dictionaries
-target_maps = {
-    "origin": df.groupby("origin")["delay_mins"].mean().to_dict(),
-    "destination": df.groupby("destination")["delay_mins"].mean().to_dict(),
-    "stop_name": df.groupby("stop_name")["delay_mins"].mean().to_dict()
-}
-joblib.dump(target_maps, "target_encodings.pkl")
+joblib.dump(model, "best_lgbm_model.pkl")

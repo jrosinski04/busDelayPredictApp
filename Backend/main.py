@@ -1,5 +1,5 @@
 import uvicorn
-import joblib
+import joblib # loads machine learning models
 import pandas as pd
 import numpy as np
 import holidays
@@ -10,32 +10,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from pydantic import BaseModel
 
+app = FastAPI() # FastAPI setup
 
-app = FastAPI()
+# Connecting to and configuring MongoDB collections
 client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
 db = client["BusDelayPredict"]
 services_db = db["servicesBN"]
 journeys_db = db["journeysBN"]
-model = joblib.load("models/lgbm_model.pkl")
-target_maps = joblib.load("models/target_encodings.pkl")  # contains origin, destination, stop_name → mean delay mappings
 
-scaler = joblib.load("models/scaler.pkl")
+# Loading pre-trained LGBM model and data encodings
+model = joblib.load("models/lgbm_model.pkl")
+target_maps = joblib.load("models/target_encodings.pkl")
 
 uk_holidays = holidays.UK(subdiv="ENG")
-
-NUMERIC_FEATURES     = ["scheduled_mins", "day_of_week", "stop_index"]
-CATEGORICAL_FEATURES = ["is_holiday","is_peak","service_id","stop_name","origin","destination"]
 
 # Enable CORS (Allow React frontend to access API)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change this to your frontend URL in production
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
+# Request structure for delay prediction
 class PredictRequest(BaseModel):
     service_id: int
     stop_name: str
@@ -43,12 +42,29 @@ class PredictRequest(BaseModel):
     date: str
     time: str
 
+def time_to_minutes(timestr: str) -> int:
+    # Converting time to minutes
+    h, m = map(int, timestr.split(":"))
+    return h * 60 + m
+
+def is_peak(mins: int, weekday: int) -> bool:
+    # Defining peak hours (7-9am & 3-6pm on weekdays)
+    if weekday >= 5: return False
+    return (420 <= mins < 540) or (900 <= mins < 1080)
+
+def get_day(date: str) -> int:
+    # Getting the day of the week
+    return datetime.fromisoformat(date).date().weekday()
+
+# API ENDPOINTS
+# ---------------------------------------------------------------------
 @app.get("/")
 def home():
     return {"message": "FastAPI is running!"}
 
 @app.get("/get_services")
 def get_services(query: str ):
+    # Searching for services in MongoDB using regex
     services = services_db.find(
     {
         "$or": [
@@ -84,7 +100,7 @@ def get_closest_journey(req: PredictRequest):
         "is_peak": is_peak(dep_mins, date.weekday()),
     }
     
-    # Query and specifying the attributes to return
+    # MongoDB query - specifying the attributes to return
     retrieved_journeys_general = list(journeys_db.find(filter, {
         "_id": 0,
         "delay_mins": 1,
@@ -93,7 +109,7 @@ def get_closest_journey(req: PredictRequest):
         "journey_id": 1
     }))
 
-    # Building filter to get the closest actual journey on the date
+    # Building filter to find closest journey on the same day
     filter = {
         "service_id": req.service_id,
         "stop_name": req.stop_name,
@@ -102,7 +118,7 @@ def get_closest_journey(req: PredictRequest):
         "day_of_week": get_day(req.date),
     }
 
-    # Query and specifying the date attribute
+    # MongoDB - specifying the attributes to return
     retrieved_journeys_dated = list(journeys_db.find(filter, {
         "scheduled_dep": 1,
         "scheduled_mins": 1,
@@ -111,12 +127,10 @@ def get_closest_journey(req: PredictRequest):
     if not retrieved_journeys_general:
         raise HTTPException(404, "No matching history found")
     
-    # Find closest journey
-    closest = min(
-        retrieved_journeys_general,
-        key=lambda doc: abs(doc["scheduled_mins"] - dep_mins)
-    )
+    # Finding closest journey on the specific day
+    closest = min(retrieved_journeys_general, key=lambda doc: abs(doc["scheduled_mins"] - dep_mins))
 
+    # Checking if such journey exists to prevent errors
     if retrieved_journeys_dated:
         closest_on_date = min(
             retrieved_journeys_dated,
@@ -127,20 +141,9 @@ def get_closest_journey(req: PredictRequest):
 
     return {"closest": closest, "closest_on_date": closest_on_date}
 
-def time_to_minutes(timestr: str) -> int:
-    h, m = map(int, timestr.split(":"))
-    return h * 60 + m
-
-def is_peak(mins: int, weekday: int) -> bool:
-    if weekday >= 5: return False
-    return (420 <= mins < 540) or (900 <= mins < 1080)
-
-def get_day(date: str) -> int:
-    # Getting the day of the week
-    return datetime.fromisoformat(date).date().weekday()
-
 @app.post("/predict_delay")
 def predict_delay(req: PredictRequest):
+    # Finding closest historical journeys
     closest_js = get_closest_journey(req)
     closest_j = closest_js["closest"]
     closest_j_with_date = closest_js["closest_on_date"]
@@ -148,12 +151,14 @@ def predict_delay(req: PredictRequest):
     if not closest_j:
         raise HTTPException(404, "No historical journey found in window")
     
+    # Getting the origin and destination from the route description
     svc = services_db.find_one({"_id": req.service_id})
     if not svc or "description" not in svc:
         raise HTTPException(500, "Service description missing")
 
     origin, destination = [p.strip() for p in svc["description"].split(" - ")]
 
+    # Retrieving stop index
     sample = journeys_db.find_one(
         {"service_id": req.service_id, "stop_name": req.stop_name},
         {"stop_index": 1}
@@ -162,6 +167,7 @@ def predict_delay(req: PredictRequest):
         raise HTTPException(404, f"Stop {req.stop_name!r} not found.")
     stop_idx = sample["stop_index"]
 
+    # Processing time and date
     try:
         j_date = datetime.fromisoformat(req.date).date()
         sched_mins = time_to_minutes(req.time)
@@ -171,16 +177,13 @@ def predict_delay(req: PredictRequest):
     day_of_week = j_date.weekday()
     is_holiday = j_date in uk_holidays
 
+    # Constructing features for the model
     try:
+        # Extracting and preparing encoded categorical features
         scheduled_mins = closest_j.get("scheduled_mins", 720)  # default to 12:00 if missing
         origin_enc = target_maps["origin"].get(origin.strip(), 0)
         destination_enc = target_maps["destination"].get(destination.strip(), 0)
         stop_name_enc = target_maps["stop_name"].get(req.stop_name.strip(), 0)
-
-        print("closest_j:", closest_j)
-        print("origin:", origin)
-        print("destination:", destination)
-        print("stop_name:", req.stop_name)
 
         row = {
         "time_sin": [np.sin(2 * np.pi * scheduled_mins / 1440)],
@@ -196,8 +199,8 @@ def predict_delay(req: PredictRequest):
     except Exception as e:
         raise HTTPException(500, f"Failed to build feature vector: {e}")
     
+    # Making prediction
     X = pd.DataFrame(row)
-
     try:
         prediction = model.predict(X)[0]
     except Exception as e:
@@ -212,8 +215,6 @@ def predict_delay(req: PredictRequest):
         "predicted_delay_mins": int(prediction),
         "scheduled_dep": scheduled_dep
     }
-
-result = []
 
 @app.get("/get_stops")
 def get_stops(service_id: int):
@@ -231,10 +232,11 @@ def get_stops(service_id: int):
     if not journeys or not svc:
         return {"stops": []}
     
+    # Iterating through first few journeys to find one that ends at the known destination
     journey_index = 0
     while (True):
         if journey_index > 5:
-            return {"stops": []}
+            return []
 
         journey = journeys[journey_index]
         journey_id = journey["id"]
@@ -249,9 +251,6 @@ def get_stops(service_id: int):
         if destination in stops[-1]:
             break
         journey_index += 1
-
-        if journey_index > 2:
-            return stops
  
     return stops
 
