@@ -203,9 +203,14 @@ def predict_delay(req: PredictRequest):
     except Exception as e:
         raise HTTPException(500, f"Prediction failed: {e}")
     
+    if closest_j_with_date:
+        scheduled_dep = closest_j_with_date["scheduled_dep"]
+    else:
+        scheduled_dep = ""
+
     return {
         "predicted_delay_mins": int(prediction),
-        "scheduled_dep": closest_j_with_date
+        "scheduled_dep": scheduled_dep
     }
 
 result = []
