@@ -1,27 +1,20 @@
 import { StyleSheet, Image, Platform, View, Text, ScrollView } from 'react-native';
 
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-
 export default function HelpPage() {
   return (
     <ScrollView contentContainerStyle={styles.helpPageContent}>
       <Text style={styles.title}>Help & About</Text>
 
-      <Text style={styles.sectionTitle}>🚌 What This App Does</Text>
+      <Text style={styles.sectionTitle}>What This App Does</Text>
       <Text style={styles.paragraph}>
-        This app helps you predict delays on UK bus services. You choose the bus, stop, direction,
-        date and time. Our system then provides an estimate of whether that bus is expected to be
-        on time or delayed.
+        This app predicts delays on Bee Network bus services. You choose the bus, stop, direction,
+        date and time. The app will then provide an estimate of whether that bus is expected to be
+        on time or delayed, based on previous journeys.
       </Text>
 
-      <Text style={styles.sectionTitle}>🔎 How It Works</Text>
+      <Text style={styles.sectionTitle}>How It Works</Text>
       <Text style={styles.paragraph}>
-        We use a type of machine learning called LightGBM to estimate delays. The model was trained
+        The app uses a machine learning model called LightGBM to estimate delays. The model was trained
         on historical data including:
       </Text>
       <Text style={styles.bullet}>• Scheduled and actual departure times</Text>
@@ -33,15 +26,15 @@ export default function HelpPage() {
         estimate delay in minutes.
       </Text>
 
-      <Text style={styles.sectionTitle}>⚖️ Transparency & Your Rights</Text>
+      <Text style={styles.sectionTitle}>Transparency & Your Rights</Text>
       <Text style={styles.paragraph}>
-        In line with UK guidance on AI transparency, we want you to understand the basics of how our
+        In line with UK guidance on AI transparency, the user should be informed about the basics of how this
         system works. No personal data is used. All delay estimates are statistical guesses based
         on historical patterns — they are not guaranteed predictions.
       </Text>
       <Text style={styles.paragraph}>
         If you’d like more technical details or have questions about how the model was trained, feel
-        free to contact us at [insert contact method].
+        free to contact us at BusDelayPredict@protonmail.com.
       </Text>
 
       <Text style={styles.sectionTitle}>📌 Disclaimer</Text>

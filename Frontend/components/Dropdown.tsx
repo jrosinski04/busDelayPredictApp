@@ -1,28 +1,23 @@
-// DropdownComponent.tsx
-import React, { useState, useRef, useEffect } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  FlatList,
-  TouchableWithoutFeedback,
-  Keyboard,
-} from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, Pressable, StyleSheet, TextInput, FlatList, TouchableWithoutFeedback, Keyboard } from "react-native";
 
+// Dropdown component
 const DropdownComponent = ({ data = [], placeholder, onSelect, value }) => {
-  const [query, setQuery] = useState("");
+  
+  const [query, setQuery] = useState(""); // Input field state
   const [isOpen, setIsOpen] = useState(false);
 
+  // Filtering data based on user input query
   const filteredData = data.filter((item) =>
     item.toLowerCase().includes(query.toLowerCase())
   );
 
+  // Syncing external value from MainPage
   useEffect(() => {
     setQuery(value || "");
   }, [value]);
 
+  // Handling user selecting an item from the list
   const handleSelect = (item) => {
     setQuery(item);
     setIsOpen(false);
@@ -30,7 +25,9 @@ const DropdownComponent = ({ data = [], placeholder, onSelect, value }) => {
     Keyboard.dismiss();
   };
 
+  // UI rendering of the dropdown menu
   return (
+    // Closing dropdown if user taps outside of the dropdown
     <TouchableWithoutFeedback onPress={() => { setIsOpen(false); Keyboard.dismiss(); }}>
       <View style={styles.container}>
         <TextInput
@@ -44,6 +41,7 @@ const DropdownComponent = ({ data = [], placeholder, onSelect, value }) => {
           style={styles.inputBox}
         />
 
+        {/* Dropdown list - only showing if open and there's data */}
         {isOpen && filteredData.length > 0 && (
           <View style={styles.dropdown}>
             <FlatList
@@ -72,7 +70,7 @@ const styles = StyleSheet.create({
   container: {
     width: "100%",
     marginBottom: 12,
-    zIndex: 999, // ensure it sits on top of other elements
+    zIndex: 999, // ensuring it sits on top of other elements
   },
   inputBox: {
     padding: 10,

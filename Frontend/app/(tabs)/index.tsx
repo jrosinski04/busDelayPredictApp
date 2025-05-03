@@ -1,12 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  Keyboard,
-} from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import axios from "axios";
 import Dropdown from "@/components/Dropdown";
@@ -29,6 +22,7 @@ const MainPage = () => {
   const [directionSelected, setDirectionSelected] = useState(false);
   const [loadingPrediction, setLoadingPrediction] = useState(false);
 
+  // Fetching services list when component is loaded
   useEffect(() => {
     const fetchServices = async () => {
       try {
@@ -44,6 +38,7 @@ const MainPage = () => {
     fetchServices();
   }, []);
 
+  // Checking if all required input fields are filled to then call the delay prediction API endpoint
   useEffect(() => {
     const isReady =
       typeof selectedService === 'string' && selectedService.length > 0 &&
@@ -54,19 +49,19 @@ const MainPage = () => {
       directionSelected;
 
     if (isReady) {
-      console.log("predictDelay called!")
       predictDelay();
     }
-  }, [selectedService, departureStop, departureDate, departureTime, destination]);
+  }, [selectedService, departureStop, departureDate, departureTime, destination, directionSelected]);
 
+  // Date picker handlers
   const showDatePicker = () => setDatePickerVisibility(true);
   const hideDatePicker = () => setDatePickerVisibility(false);
-
   const handleDateConfirm = (date) => {
     setDepartureDate(date);
     hideDatePicker();
   };
 
+  // Reset button to reset all values
   const resetAll = () => {
     setSelectedService("");
     setDepartureStop("");
@@ -83,19 +78,9 @@ const MainPage = () => {
     setServiceNum("");
   }
 
-  const test = () => {
-    console.log("Selected service: " + (typeof selectedService === 'string' && selectedService.length > 0));
-    console.log("Departure stop: " + (typeof departureStop === 'string' && departureStop.length > 0));
-    console.log("Departure date: " + (departureDate instanceof Date));
-    console.log("Departure time: " + (typeof departureTime === 'string' && departureTime.length > 0));
-    console.log("Destination: " + (typeof destination === 'string' && destination.length > 0));
-    console.log("Destination: " + destination);
-    console.log("Original Destination: " + originalDestination)
-    console.log("Origin: " + origin);
-    console.log("Original origin: " + originalOrigin)
-  }
-
+  // Function to get bus stops once the service is selected
   const handleServiceSelect = async (selectedLabel) => {
+    // Finding selected service from the list
     const selected = servicesList.find(
       (s) => `${s.number}: ${s.description}` === selectedLabel
     );
@@ -105,6 +90,7 @@ const MainPage = () => {
     setServiceNum(selectedLabel.split(':')[0])
     setDepartureStop("");
 
+    // Connecting to the API endpoint to get list of bus stops
     try {
       const response = await axios.get(
         "https://fetchbusservices.onrender.com/get_stops",
@@ -113,6 +99,7 @@ const MainPage = () => {
       const stops = response.data;
       setStopsList(stops);
 
+      // Getting origin and destination and configuring appropriate variables
       const org = stops[0];
       const des = stops[stops.length - 1];
 
@@ -122,24 +109,28 @@ const MainPage = () => {
       setDestination(des);
       setDirectionSelected(true);
 
-      console.log(origin)
     } catch (error) {
       console.error("Error fetching stops: ", error);
     }
   };
 
+  // Updating stop variable when a bus stop is selected
   const handleStopSelect = (stop) => {
     setDepartureStop(stop);
   };
 
+  // Prediction logic
   const predictDelay = async () => {
     try {
       setLoadingPrediction(true);
+
+      // Finding service
       const selected = servicesList.find(
         (s) => `${s.number}: ${s.description}` === selectedService
       );
       if (!selected) return;
 
+      // Establishing parameters to be sent to the API
       const params = {
         service_id: parseInt(selected._id),
         stop_name: departureStop,
@@ -147,7 +138,11 @@ const MainPage = () => {
         date: departureDate.toISOString().split("T")[0],
         time: departureTime,
       };
+
+      console.log("Entered parameters ↓")
       console.log(params)
+
+      // API POST request
       const response = await axios.post(
         "https://fetchbusservices.onrender.com/predict_delay",
         params,
@@ -166,12 +161,16 @@ const MainPage = () => {
     }
   };
 
+  // Preparing list of services for the bus service dropdown menu, sorted by route number
   const sortedServiceLabels = [...servicesList]
     .sort((a, b) => parseInt(a.number) - parseInt(b.number))
     .map((s) => `${s.number}: ${s.description}`);
 
+  // UI
   return (
     <View style={{ padding: 16, marginTop: 50 }}>
+      <Text style={styles.infoTitle}>Enter your planned journey details{'\n'}</Text>
+      
       {/* Date Picker */}
       <Pressable onPress={showDatePicker}>
         <TextInput
@@ -211,6 +210,7 @@ const MainPage = () => {
         value={departureStop}
       />
 
+      {/* Direction selection buttons */}
       {selectedService && departureStop && departureDate && departureTime && (
         <View style={styles.directionContainer}>
           <Text style={styles.label}>Choose direction of travel:</Text>
@@ -232,13 +232,11 @@ const MainPage = () => {
           >
             <Text>{stopsList[stopsList.length - 1]} → {stopsList[0]}</Text>
           </Pressable>
-
-
         </View>
       )}
 
 
-      {/* Display Selections */}
+      {/* Displaying summary & prediction */}
       {(selectedService || departureStop || destination || scheduledDeparture) && (
         <View style={styles.infoSection}>
           {selectedService && (
@@ -250,7 +248,7 @@ const MainPage = () => {
           {destination && (
             <Text>towards {destination}{'\n'}</Text>
           )}
-          {scheduledDeparture && (
+          {scheduledDeparture && !loadingPrediction && (
             <Text>Scheduled at: {scheduledDeparture}</Text>
           )}
           {(predictedDelay !== null || loadingPrediction) && (
@@ -271,7 +269,6 @@ const MainPage = () => {
         </View>
       )}
 
-
       <Pressable
         onPress={resetAll}
         style={styles.button}
@@ -284,6 +281,7 @@ const MainPage = () => {
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
   inputBox: {
     padding: 10,
@@ -319,17 +317,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignItems: "center",
     marginTop: 10,
-  },
-  continueButton: {
-    backgroundColor: "#007AFF",
-    padding: 12,
-    borderRadius: 6,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  continueButtonText: {
-    color: "white",
-    fontWeight: "bold",
   },
   directionButton: {
     padding: 10,
