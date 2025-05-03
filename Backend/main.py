@@ -194,7 +194,7 @@ def predict_delay(req: PredictRequest):
 
     return {
         "predicted_delay_mins": int(prediction),
-        "scheduled_dep": closest_j_with_date
+        "scheduled_dep": closest_j_with_date["scheduled_dep"]
     }
 
 result = []
