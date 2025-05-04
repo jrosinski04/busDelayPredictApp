@@ -227,7 +227,7 @@ def get_stops(service_id: int):
     resp = requests.get(f"http://bustimes.org/api/services/{service_id}", params={"page_size": 1}, timeout = 10)
     resp.raise_for_status()
     svc = resp.json()
-    destination = svc["description"].split("-")[-1].lstrip()
+    origin, destination = [p.strip() for p in svc["description"].split(" - ")]
 
     if not journeys or not svc:
         return {"stops": []}
@@ -249,7 +249,7 @@ def get_stops(service_id: int):
         stops = [ stop["name"] for stop in stops_resp.json().get("stops", []) if stop.get("name")]
 
         # If the last stop is the intended destination or the first and last stops are the same (in the case of circular routes), break the loop and return the stops list
-        if destination in stops[-1] or stops[0] == stops[-1]:
+        if (destination in stops[-1] or origin in stops[0]) or stops[0] == stops[-1]:
             break;
         journey_index += 1
  
