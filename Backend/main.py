@@ -248,8 +248,9 @@ def get_stops(service_id: int):
 
         stops = [ stop["name"] for stop in stops_resp.json().get("stops", []) if stop.get("name")]
 
-        if destination in stops[-1]:
-            break
+        # If the last stop is the intended destination or the first and last stops are the same (in the case of circular routes), break the loop and return the stops list
+        if destination in stops[-1] or stops[0] == stops[-1]:
+            break;
         journey_index += 1
  
     return stops
