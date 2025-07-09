@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 
-client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+client = MongoClient("") # MISSING LINK
 db = client["BusDelayPredict"]
 collection = db["journeysBN"]
 

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 app = FastAPI() # FastAPI setup
 
 # Connecting to and configuring MongoDB collections
-client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/?retryWrites=true&w=majority&appName=JRCluster")
+client = MongoClient("") # MISSING LINK
 db = client["BusDelayPredict"]
 services_db = db["servicesBN"]
 journeys_db = db["journeysBN"]

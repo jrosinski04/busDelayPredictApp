@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import numpy as np
 
-client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+client = MongoClient("") # MISSING LINK
 df = pd.DataFrame(list(client["BusDelayPredict"]["journeysBN"].find({})))
 client.close()
 

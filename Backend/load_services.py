@@ -7,7 +7,7 @@ PAGE_SIZE = 100 # Number of services per request
 
 def load_services():
     # Connecting to MongoDB
-    client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+    client = MongoClient("") # MISSING LINK
     db = client.get_default_database()
     col = db.servicesBN
 

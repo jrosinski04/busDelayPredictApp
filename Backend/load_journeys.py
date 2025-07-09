@@ -24,7 +24,7 @@ def chunk_list(list, size):
 
 def load_journeys():
     # Connecting to MongoDB and fetching the bus services
-    client = MongoClient("mongodb+srv://kuba08132004:Solo1998@jrcluster.nwclg.mongodb.net/BusDelayPredict")
+    client = MongoClient("") # MISSING LINK
     db = client["BusDelayPredict"]
     service_ids = [s["_id"] for s in db[SERVICES_COL].find({}, {"_id":1})]
     journeys_col = db[JOURNEYS_COL]
