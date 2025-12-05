@@ -4,19 +4,31 @@ import pandas as pd
 import numpy as np
 import holidays
 import requests
+import gzip, json, io, os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from pydantic import BaseModel
+from azure.storage.blob import BlobServiceClient
 
 app = FastAPI() # FastAPI setup
 
-# Connecting to and configuring MongoDB collections
-client = MongoClient("") # MISSING LINK
-db = client["BusDelayPredict"]
-services_db = db["servicesBN"]
-journeys_db = db["journeysBN"]
+# Loading JSON from blob
+def load_from_blob(container, blob):
+    connection = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+    service = BlobServiceClient.from_connection_string(connection)
+    client = service.get_blob_client(container=container, blob=blob)
+
+    data = client.download_blob().readall()
+    
+    if blob.endswith(".gz"):
+        data = gzip.decompress(data)
+
+    return json.loads(data)
+    
+services_db = load_from_blob("busdata", "services.json")
+departures_db = load_from_blob("busdata", "departures.json")
 
 # Loading pre-trained LGBM model and data encodings
 model = joblib.load("models/lgbm_model.pkl")
@@ -101,7 +113,7 @@ def get_closest_journey(req: PredictRequest):
     }
     
     # MongoDB query - specifying the attributes to return
-    retrieved_journeys_general = list(journeys_db.find(filter, {
+    retrieved_journeys_general = list(departures_db.find(filter, {
         "_id": 0,
         "delay_mins": 1,
         "scheduled_mins": 1,
@@ -119,7 +131,7 @@ def get_closest_journey(req: PredictRequest):
     }
 
     # MongoDB - specifying the attributes to return
-    retrieved_journeys_dated = list(journeys_db.find(filter, {
+    retrieved_journeys_dated = list(departures_db.find(filter, {
         "scheduled_dep": 1,
         "scheduled_mins": 1,
     }))
@@ -159,7 +171,7 @@ def predict_delay(req: PredictRequest):
     origin, destination = [p.strip() for p in svc["description"].split(" - ")]
 
     # Retrieving stop index
-    sample = journeys_db.find_one(
+    sample = departures_db.find_one(
         {"service_id": req.service_id, "stop_name": req.stop_name},
         {"stop_index": 1}
     )
